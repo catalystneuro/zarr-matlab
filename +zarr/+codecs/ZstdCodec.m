@@ -41,7 +41,15 @@ classdef ZstdCodec < zarr.codecs.Codec
         end
 
         function ensureMex()
-            if isempty(which('zarr.internal.zstd_mex'))
+            % which() costs several milliseconds, which dominates per-chunk
+            % codec time, so cache the positive result. A negative result is
+            % never cached: that path errors out anyway, and re-checking lets
+            % a MEX built mid-session be picked up without clearing functions.
+            persistent isBuilt
+            if isempty(isBuilt) || ~isBuilt
+                isBuilt = ~isempty(which('zarr.internal.zstd_mex'));
+            end
+            if ~isBuilt
                 error("zarr:MissingMex", ...
                     "The zstd codec needs the zarr-matlab MEX extension. Build it with tools/build_mex.m (requires libzstd).");
             end
