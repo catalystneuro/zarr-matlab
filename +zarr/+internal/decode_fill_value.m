@@ -12,14 +12,8 @@ elseif info.zarrType == "variable_length_bytes"
         v = reshape(matlab.net.base64decode(char(string(raw))), 1, []);
     end
     return
-elseif info.zarrType == "structured"
-    % Unlike other fill values, zarr-python encodes a "structured" (compound
-    % record) fill_value as base64 of the raw little-endian record bytes,
-    % regardless of the array's configured codec endianness (which is not
-    % yet known at metadata-parse time). See zarr.internal.dtype_info.
-    rawBytes = reshape(matlab.net.base64decode(char(string(raw))), 1, []);
-    records = zarr.internal.decode_structured(rawBytes, info, 1, "little");
-    v = records(1);
+elseif info.isStructured
+    v = structuredFillValue(raw, info);
     return
 end
 if info.isComplex
@@ -69,4 +63,53 @@ switch s
                 "Cannot interpret fill value '%s' for data type '%s'.", s, info.zarrType);
         end
 end
+end
+
+function v = structuredFillValue(raw, info)
+%STRUCTUREDFILLVALUE Fill value of a structured dtype, in either form.
+%   The canonical "struct" name writes the fill_value as an object of
+%   per-field fill values, which jsondecode returns as a scalar struct;
+%   the legacy "structured" name writes base64 of the raw little-endian
+%   element bytes (little-endian regardless of the array's configured
+%   codec endianness, which is not yet known at metadata-parse time).
+%   zarr-python reads both under either name, so accept both here.
+%   See zarr.internal.dtype_info.
+
+if isstruct(raw)
+    v = struct();
+    for k = 1:numel(info.fields)
+        f = info.fields(k);
+        [fieldRaw, found] = lookupField(raw, f.Name);
+        if found
+            v.(f.Name) = zarr.internal.decode_fill_value(fieldRaw, f.Info);
+        else
+            % Absent from the object: fall back to the field's own default,
+            % as zarr-python does.
+            v.(f.Name) = zarr.internal.default_scalar_fill_value(f.Info);
+        end
+    end
+    return
+end
+rawBytes = reshape(matlab.net.base64decode(char(string(raw))), 1, []);
+records = zarr.internal.decode_structured(rawBytes, info, 1, "little");
+v = records(1);
+end
+
+function [value, found] = lookupField(raw, name)
+%LOOKUPFIELD One field of a decoded fill_value object, if it has one.
+%   jsondecode renames JSON keys that are not valid MATLAB identifiers, so
+%   fall back to the same mangling before reporting the field absent.
+
+found = true;
+if isfield(raw, name)
+    value = raw.(name);
+    return
+end
+mangled = matlab.lang.makeValidName(name);
+if isfield(raw, mangled)
+    value = raw.(mangled);
+    return
+end
+value = [];
+found = false;
 end

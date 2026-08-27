@@ -1,23 +1,51 @@
 classdef TestStructuredDtype < matlab.unittest.TestCase
-    %"structured" (compound record) and "fixed_length_utf32" data types.
+    %Structured ("struct"/"structured") and "fixed_length_utf32" types.
     %
-    %   Neither is part of the Zarr v3 specification -- both are unstable,
-    %   unspecified zarr-python extensions (zarr-python itself raises
-    %   UnstableSpecificationWarning when writing them). Support exists here
-    %   to read real-world files that use them (observed in some NWB Zarr v3
-    %   exports via hdmf-zarr, e.g. IntracellularRecordingsTable index
-    %   columns and PlaneSegmentation pixel_mask/voxel_mask columns).
+    %   A structured data type -- elements are structs of named fields,
+    %   what HDF5 and hdmf call a compound type -- has two data_type
+    %   names on disk: the canonical
+    %   "struct", specified in zarr-extensions and written by zarr-python
+    %   from 3.3 on, whose fields are {name, data_type} objects; and the
+    %   legacy "structured", written by earlier versions, whose fields are
+    %   [name, data_type] pairs. Both names are read here, each with either
+    %   field shape, and each keeps its own fill_value encoding.
+    %
+    %   "fixed_length_utf32" is not part of the Zarr v3 specification, nor
+    %   is the legacy "structured" name -- both are unstable zarr-python
+    %   extensions (zarr-python raises UnstableSpecificationWarning when
+    %   writing them). Support exists here to read real-world files that use
+    %   them (observed in NWB Zarr v3 exports via hdmf-zarr, e.g.
+    %   IntracellularRecordingsTable index columns, PlaneSegmentation
+    %   pixel_mask/voxel_mask columns, and DynamicTable columns whose rows
+    %   mix values with object references).
 
     methods (Static)
         function info = structInfo()
-            % {a: int32, b: float64, c: fixed_length_utf32(32 bytes)}
+            % Legacy "structured": {a: int32, b: float64, c: utf32(32 bytes)}
+            info = zarr.internal.dtype_info(TestStructuredDtype.legacyDtypeJson());
+        end
+
+        function dtypeJson = legacyDtypeJson()
+            % The legacy name, with fields as [name, data_type] pairs -- the
+            % shape jsondecode returns for them (a cell of 2-element cells,
+            % because the pair elements are not type-uniform).
             dtypeJson = struct('name', "structured", 'configuration', struct( ...
                 'fields', {{ ...
                     {'a', 'int32'}; ...
                     {'b', 'float64'}; ...
                     {'c', struct('name', 'fixed_length_utf32', 'configuration', struct('length_bytes', 32))} ...
                 }}));
-            info = zarr.internal.dtype_info(dtypeJson);
+        end
+
+        function dtypeJson = canonicalDtypeJson()
+            % The same data type under the canonical name, with fields as
+            % {name, data_type} objects -- the shape jsondecode returns for
+            % them (an Nx1 struct array).
+            fields = struct( ...
+                'name', {'a'; 'b'; 'c'}, ...
+                'data_type', {'int32'; 'float64'; ...
+                    struct('name', 'fixed_length_utf32', 'configuration', struct('length_bytes', 32))});
+            dtypeJson = struct('name', "struct", 'configuration', struct('fields', fields));
         end
     end
 
@@ -168,6 +196,147 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyEqual(back(1).a, records(1).a);
             tc.verifyEqual(back(1).c, records(1).c);
             tc.verifyEqual(back(2).b, records(2).b);
+        end
+
+        function canonicalNameMatchesLegacyLayout(tc)
+            % The two on-disk names describe the same field layout.
+            legacy = zarr.internal.dtype_info(tc.legacyDtypeJson());
+            canonical = zarr.internal.dtype_info(tc.canonicalDtypeJson());
+            tc.verifyTrue(canonical.isStructured);
+            tc.verifyEqual(canonical.zarrType, "struct");
+            tc.verifyEqual(canonical.itemsize, legacy.itemsize);
+            tc.verifyEqual([canonical.fields.Name], [legacy.fields.Name]);
+            tc.verifyEqual([canonical.fields.Offset], [legacy.fields.Offset]);
+        end
+
+        function canonicalNameAcceptsPairFields(tc)
+            % zarr-python's canonical reader falls back to pair-style
+            % entries, so a "struct" carrying them must not be rejected.
+            dtypeJson = tc.legacyDtypeJson();
+            dtypeJson.name = "struct";
+            info = zarr.internal.dtype_info(dtypeJson);
+            tc.verifyEqual(info.itemsize, tc.structInfo().itemsize);
+            tc.verifyEqual([info.fields.Name], ["a", "b", "c"]);
+        end
+
+        function fieldsAsCellOfObjects(tc)
+            % jsondecode returns a cell of scalar structs, rather than a
+            % struct array, when the field entries do not share key sets.
+            fields = {struct('name', 'a', 'data_type', 'int32'); ...
+                      struct('name', 'b', 'data_type', 'float64', 'note', 'ignored')};
+            info = zarr.internal.dtype_info(struct('name', "struct", ...
+                'configuration', struct('fields', {fields})));
+            tc.verifyEqual([info.fields.Name], ["a", "b"]);
+            tc.verifyEqual(info.itemsize, 12);
+        end
+
+        function malformedFieldEntryErrors(tc)
+            tc.verifyError(@() zarr.internal.dtype_info(struct('name', "struct", ...
+                'configuration', struct('fields', {{{'a', 'int32', 'extra'}}}))), ...
+                "zarr:InvalidMetadata");
+        end
+
+        function variableLengthFieldErrors(tc)
+            % Elements have a fixed byte layout, so a vlen field has no size.
+            fields = struct('name', {'a'; 'b'}, 'data_type', {'int32'; 'string'});
+            tc.verifyError(@() zarr.internal.dtype_info(struct('name', "struct", ...
+                'configuration', struct('fields', fields))), ...
+                "zarr:UnsupportedDataType");
+        end
+
+        function missingFieldsConfigErrors(tc)
+            tc.verifyError(@() zarr.internal.dtype_info( ...
+                struct('name', "struct", 'configuration', struct())), ...
+                "zarr:InvalidMetadata");
+        end
+
+        function canonicalFillValueIsPerFieldObject(tc)
+            % The canonical name writes fill_value as an object of per-field
+            % values; the legacy name writes base64 of the record bytes.
+            info = zarr.internal.dtype_info(tc.canonicalDtypeJson());
+            fv = struct('a', int32(7), 'b', -1.5, 'c', "hi");
+            txt = zarr.internal.encode_fill_value_json(fv, info);
+            tc.verifyEqual(txt, "{""a"":7,""b"":-1.5,""c"":""hi""}");
+            back = zarr.internal.decode_fill_value(jsondecode(char(txt)), info);
+            tc.verifyEqual(back.a, fv.a);
+            tc.verifyEqual(back.b, fv.b);
+            tc.verifyEqual(back.c, fv.c);
+        end
+
+        function legacyFillValueStaysBase64(tc)
+            info = tc.structInfo();
+            fv = struct('a', int32(7), 'b', -1.5, 'c', "hi");
+            txt = zarr.internal.encode_fill_value_json(fv, info);
+            tc.verifyTrue(startsWith(txt, """"));
+            back = zarr.internal.decode_fill_value(jsondecode(char(txt)), info);
+            tc.verifyEqual(back.a, fv.a);
+            tc.verifyEqual(back.c, fv.c);
+        end
+
+        function canonicalFillValueAcceptsBase64(tc)
+            % zarr-python reads either encoding under either name.
+            canonical = zarr.internal.dtype_info(tc.canonicalDtypeJson());
+            fv = struct('a', int32(3), 'b', 2.5, 'c', "x");
+            legacyText = zarr.internal.encode_fill_value_json(fv, tc.structInfo());
+            back = zarr.internal.decode_fill_value(jsondecode(char(legacyText)), canonical);
+            tc.verifyEqual(back.a, fv.a);
+            tc.verifyEqual(back.c, fv.c);
+        end
+
+        function fillValueFieldAbsentFallsBackToDefault(tc)
+            % hdmf-zarr writes "0" into string fields (the record default is
+            % 0 cast field-wise); a field left out entirely defaults too.
+            info = zarr.internal.dtype_info(tc.canonicalDtypeJson());
+            back = zarr.internal.decode_fill_value(struct('a', 4), info);
+            tc.verifyEqual(back.a, int32(4));
+            tc.verifyEqual(back.b, 0);
+            tc.verifyEqual(back.c, "");
+        end
+
+        function createStructArrayEndToEnd(tc)
+            % The public creation path: a data_type struct passed to
+            % zarr.create, written and read back through zarr.open.
+            import matlab.unittest.fixtures.TemporaryFolderFixture
+            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            storePath = fullfile(tempFixture.Folder, "created.zarr");
+
+            fields = struct('name', {'id'; 'label'}, 'data_type', ...
+                {'int32'; struct('name', 'fixed_length_utf32', ...
+                    'configuration', struct('length_bytes', 64))});
+            dtype = struct('name', "struct", 'configuration', struct('fields', fields));
+
+            records = struct('id', {int32(1); int32(2); int32(3)}, ...
+                             'label', {"alpha"; "beta"; "gamma"});
+            z = zarr.create(storePath, 3, dtype, ChunkShape=2);
+            z.write(records);
+
+            back = zarr.open(storePath).read();
+            tc.verifyEqual([back.id], int32([1, 2, 3]));
+            tc.verifyEqual([back.label], ["alpha", "beta", "gamma"]);
+
+            % Chunked across the record boundary, so the second chunk is
+            % partial: its unwritten tail must read back as the fill value.
+            meta = jsondecode(fileread(fullfile(storePath, "zarr.json")));
+            tc.verifyEqual(string(meta.data_type.name), "struct");
+            tc.verifyEqual(string(meta.fill_value.label), "");
+        end
+
+        function createRejectsNonStructRecordData(tc)
+            import matlab.unittest.fixtures.TemporaryFolderFixture
+            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            storePath = fullfile(tempFixture.Folder, "rejects.zarr");
+            fields = struct('name', {'id'}, 'data_type', {'int32'});
+            dtype = struct('name', "struct", 'configuration', struct('fields', fields));
+            z = zarr.create(storePath, 2, dtype);
+            tc.verifyError(@() z.write([1 2]), "zarr:TypeMismatch");
+        end
+
+        function createRejectsConfiguredDtypeNamedWithoutConfig(tc)
+            import matlab.unittest.fixtures.TemporaryFolderFixture
+            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            storePath = fullfile(tempFixture.Folder, "noconfig.zarr");
+            tc.verifyError(@() zarr.create(storePath, 2, "struct"), ...
+                "zarr:InvalidMetadata");
         end
     end
 
