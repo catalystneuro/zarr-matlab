@@ -6,9 +6,18 @@ cases = interop_case_list();
 
 % ---- verify python-written store -------------------------------------
 root = zarr.open(pyStore);
-assert(root.attrs.title == "interop" && root.attrs.answer == 42, 'root attrs');
+assert(root.attrs{"title"} == "interop" && root.attrs{"answer"} == 42, 'root attrs');
 sub = root.item("sub");
-assert(sub.attrs.depth == 1, 'sub attrs');
+assert(sub.attrs{"depth"} == 1, 'sub attrs');
+
+% Reserved names of the hdmf-zarr Zarr v3 convention. Every one begins with
+% an underscore, so none can be held in a struct; they are the reason
+% attributes are exposed as a dictionary.
+reserved = sub.attrs;
+assert(reserved{"_DTYPE"} == "object_reference", '_DTYPE');
+assert(isequal(reserved{"_REFERENCE_FIELDS"}, {"electrode"}), '_REFERENCE_FIELDS is a list');
+assert(reserved{"_LINKS"}{1}{"path"} == "/general/devices/probe", '_LINKS entry');
+assert(reserved{"_REF_ATTR"}{"_REFERENCE"}{"path"} == "/general/electrodes", 'nested _REFERENCE');
 
 for i = 1:numel(cases)
     c = cases{i};
@@ -34,13 +43,18 @@ end
 named = zarr.open(pyStore, Path="sub/named");
 assert(isequaln(named.read(), interop_pattern([4 6], "float64")), 'named data');
 assert(isequal(named.dimensionNames, ["y" "x"]), 'dimension_names');
-assert(named.attrs.units == "mm" && named.attrs.scale == 1.5, 'array attrs');
+assert(named.attrs{"units"} == "mm" && named.attrs{"scale"} == 1.5, 'array attrs');
 fprintf('MATLAB verified %d python-written arrays\n', numel(cases) + 1);
 
 % ---- write the mirror store for python to verify ----------------------
 zarr.create_group(mlStore, Attributes=struct('title', 'interop', 'answer', 42));
 g = zarr.open(mlStore);
-g.createGroup("sub").setAttr('depth', 1);
+subOut = g.createGroup("sub");
+subOut.setAttr("depth", 1);
+% Hand the reserved names straight back, so python sees exactly what it wrote.
+for name = ["_DTYPE", "_REFERENCE_FIELDS", "_LINKS", "_REF_ATTR"]
+    subOut.setAttr(name, reserved{name});
+end
 
 nWritten = 0;
 for i = 1:numel(cases)

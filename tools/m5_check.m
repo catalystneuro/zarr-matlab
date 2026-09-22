@@ -8,7 +8,7 @@ zs = zarr.stores.ZipStore("scratch/m5_py.zip");
 g = zarr.open(zs);
 z = g.item("data");
 assert(isequal(z.read(), interop_pattern([6 8], "float64")), 'zip read data');
-assert(g.attrs.kind == "zipped", 'zip attrs');
+assert(g.attrs{"kind"} == "zipped", 'zip attrs');
 sarr = g.item("labels");
 assert(isequal(sarr.read(), ["alpha"; "beta"; ""; "delta"]), 'zip vlen strings');
 zs.close();

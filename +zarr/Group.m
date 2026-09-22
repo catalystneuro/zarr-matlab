@@ -8,7 +8,7 @@ classdef Group < handle
     end
 
     properties (Dependent)
-        attrs
+        attrs   % cell-valued dictionary of user attributes; look up with attrs{"name"}
     end
 
     methods
@@ -21,11 +21,19 @@ classdef Group < handle
         function a = get.attrs(obj), a = obj.meta.attributes; end
 
         function setAttr(obj, name, value)
-            obj.meta.attributes.(name) = value;
+            %SETATTR Set one attribute. name is written exactly as given,
+            %   so it may be any JSON key ("_DTYPE", "chunk size").
+            arguments
+                obj
+                name (1,1) string
+                value
+            end
+            obj.meta.attributes(name) = {value};
             obj.writeMetadata();
         end
 
         function setAttrs(obj, s)
+            %SETATTRS Replace all attributes with a dictionary or scalar struct.
             obj.meta.attributes = s;
             obj.writeMetadata();
         end
@@ -125,9 +133,9 @@ classdef Group < handle
 
         function disp(obj)
             fprintf('  zarr.Group  /%s   store: %s\n', obj.path, class(obj.store));
-            names = fieldnames(obj.meta.attributes);
+            names = keys(obj.meta.attributes);
             if ~isempty(names)
-                fprintf('    attrs: %s\n', strjoin(string(names), ", "));
+                fprintf('    attrs: %s\n', strjoin(names, ", "));
             end
             try
                 [an, gn] = obj.children();

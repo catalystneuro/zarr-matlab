@@ -49,7 +49,9 @@ addpath('/path/to/zarr-matlab')
 run tools/build_mex.m   % MEX codecs: needs a C compiler + libzstd / libblosc
 ```
 
-Requires MATLAB R2022b or newer with a JVM (used for gzip compression).
+Requires MATLAB R2023a or newer with a JVM (used for gzip compression).
+R2023a is the release that added brace indexing for `dictionary`, which
+node attributes rely on.
 Everything except the `zstd`/`blosc` codecs works without the MEX binaries;
 opening data that needs them produces a clear error naming the missing codec.
 Intel-Mac users must build the MEX locally (no CI runners exist for maci64).
@@ -78,7 +80,7 @@ block = z(1:100, end-99:end);
 % Open an existing store (works on data written by zarr-python)
 z = zarr.open("weather.zarr", Path="temp");
 data = z.read();            % whole array
-z.attrs                     % attributes struct
+z.attrs                     % dictionary of attributes; z.attrs{"units"}
 z.dimensionNames            % ["lat" "lon"]
 
 % Groups and hierarchy
@@ -129,9 +131,13 @@ transposition is needed (unlike MATLAB's `h5read`, which reverses dimensions).
 Rank mapping: rank-1 zarr arrays are MATLAB column vectors; rank-0 (scalar)
 arrays are read with `z()`.
 
-Known limitation: user attributes are exposed as MATLAB structs, so attribute
-*keys* that are not valid MATLAB identifiers (spaces, dashes, leading digits)
-are normalized by `jsondecode` on read. Attribute values are unaffected. Chunks are stored C-order per the spec; pass
+User attributes are exposed as a cell-valued `dictionary`, so a key is
+whatever the file says -- including keys that are not valid MATLAB
+identifiers, such as `_DTYPE` (hdmf-zarr's Zarr v3 convention), `chunk size`
+or `2d-extent`. Look one up with braces: `z.attrs{"units"}`. Keys nested
+inside an attribute *value* are exact too, and a JSON array always reads back
+as a cell, so a one-element list stays a list; use `cell2mat` where a numeric
+vector is wanted. Chunks are stored C-order per the spec; pass
 `Order="F"` to `zarr.create` to store column-major chunks (adds a spec-standard
 `transpose` codec — still fully readable by zarr-python — and makes MATLAB I/O
 copy-free).

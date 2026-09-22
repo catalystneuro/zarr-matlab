@@ -60,7 +60,8 @@ Recursively remove an array or group and all data beneath it.
 Handle class returned by `zarr.open`/`zarr.create`.
 
 **Properties (read-only):** `store`, `path`, `meta`, `shape` (Zarr shape),
-`dtype` (Zarr name), `chunkShape`, `attrs` (struct), `dimensionNames`.
+`dtype` (Zarr name), `chunkShape`, `attrs` (cell-valued `dictionary`;
+look up with `attrs{"name"}`), `dimensionNames`.
 **Settable:** `writeEmptyChunks` (default `false`).
 
 **Indexing:** full MATLAB paren indexing — slices, `end`, `:`, numeric and
@@ -75,7 +76,7 @@ whole array as a column.
 | `write(data, start)` | region write; `start` optional (defaults to origin) |
 | `resize(newShape)` | change shape; shrinking deletes out-of-bounds chunks |
 | `append(data, dim)` | grow along `dim` and write `data` at the end |
-| `setAttr(name, value)` / `setAttrs(s)` | update / replace attributes |
+| `setAttr(name, value)` / `setAttrs(s)` | update / replace attributes; `name` is written exactly, `s` is a dictionary or scalar struct |
 | `size / ndims / numel / disp` | standard MATLAB semantics |
 
 ## `zarr.Group`
@@ -89,7 +90,7 @@ whole array as a column.
 | `children()` | `[arrayNames, groupNames]`, both string columns |
 | `createArray(name, shape, dtype, ...)` | like `zarr.create` under this group |
 | `createGroup(name, ...)` | create a child group |
-| `setAttr / setAttrs` | attribute updates |
+| `setAttr / setAttrs` | attribute updates; `name` is written exactly, `setAttrs` takes a dictionary or scalar struct |
 | `tree(maxDepth)` | print the hierarchy |
 
 Both `item` and `children` are served from consolidated metadata when

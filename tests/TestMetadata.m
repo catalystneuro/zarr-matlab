@@ -157,8 +157,8 @@ classdef TestMetadata < matlab.unittest.TestCase
             gm = zarr.metadata.GroupMetadata();
             gm.attributes = struct('a', 1, 'b', "text");
             gm2 = zarr.metadata.GroupMetadata.fromJsonText(gm.toJsonText());
-            tc.verifyEqual(gm2.attributes.a, 1);
-            tc.verifyEqual(string(gm2.attributes.b), "text");
+            tc.verifyEqual(gm2.attributes{"a"}, 1);
+            tc.verifyEqual(gm2.attributes{"b"}, "text");
         end
 
         function datetimeDtypeRoundTrip(tc)

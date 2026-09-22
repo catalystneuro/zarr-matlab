@@ -2,7 +2,9 @@ classdef GroupMetadata
     %GROUPMETADATA Parsed Zarr v3 group metadata (zarr.json).
 
     properties
-        attributes struct = struct()
+        % Cell-valued dictionary so that attribute keys survive exactly;
+        % assigning a struct converts it (see set.attributes).
+        attributes = dictionary(string.empty, {})
         consolidated = []   % containers.Map: node path -> raw zarr.json text, or []
     end
 
@@ -17,12 +19,15 @@ classdef GroupMetadata
                 error("zarr:InvalidMetadata", "Expected node_type 'group'.");
             end
             obj = zarr.metadata.GroupMetadata();
-            if isfield(m, 'attributes') && isstruct(m.attributes)
-                obj.attributes = m.attributes;
+
+            % Attributes and consolidated paths both carry keys jsondecode
+            % would rename, so read both from the source text instead.
+            [rk, rv] = zarr.internal.json_object_entries(txt);
+            aIdx = find(rk == "attributes", 1);
+            if ~isempty(aIdx)
+                obj.attributes = zarr.internal.json_decode_exact(rv(aIdx));
             end
             if isfield(m, 'consolidated_metadata') && ~isempty(m.consolidated_metadata)
-                % Re-extract with exact keys: jsondecode mangles path keys.
-                [rk, rv] = zarr.internal.json_object_entries(txt);
                 cIdx = find(rk == "consolidated_metadata", 1);
                 [ck, cv] = zarr.internal.json_object_entries(rv(cIdx));
                 mIdx = find(ck == "metadata", 1);
@@ -38,10 +43,17 @@ classdef GroupMetadata
     end
 
     methods
+        function obj = set.attributes(obj, value)
+            % Accepts a dictionary or a scalar struct; always stores a
+            % cell-valued dictionary, so callers can keep passing structs
+            % for keys that are valid MATLAB identifiers.
+            obj.attributes = zarr.internal.attribute_dictionary(value);
+        end
+
         function txt = toJsonText(obj)
             txt = """zarr_format"":3,""node_type"":""group""";
-            if ~isempty(fieldnames(obj.attributes))
-                txt = txt + ",""attributes"":" + string(jsonencode(obj.attributes));
+            if numEntries(obj.attributes) > 0
+                txt = txt + ",""attributes"":" + zarr.internal.json_encode_exact(obj.attributes);
             end
             if ~isempty(obj.consolidated)
                 paths = sort(string(obj.consolidated.keys())');

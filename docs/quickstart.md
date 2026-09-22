@@ -47,7 +47,7 @@ z.write(single(zeros(10, 10)), [1 1]);
 z2 = zarr.open("quickstart.zarr", Path="temperature");
 disp(z2.shape)            % [720 1440]
 disp(z2.dtype)            % "float32"
-disp(z2.attrs.units)
+disp(z2.attrs{"units"})
 disp(z2.dimensionNames)   % ["lat" "lon"]
 ```
 

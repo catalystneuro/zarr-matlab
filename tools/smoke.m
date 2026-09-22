@@ -52,7 +52,7 @@ d3 = reshape(int16(1:60), [5 4 3]);
 z3(:, :, :) = d3;
 z4 = zarr.open(char(tmp), Path="t");
 assert(isequal(z4(:, :, :), d3), 'local store 3-D round trip');
-assert(z4.attrs.units == "mm", 'attrs');
+assert(z4.attrs{"units"} == "mm", 'attrs');
 assert(isequal(z4.dimensionNames, ["z" "y" "x"]), 'dimension names');
 assert(isequal(z4(4:5, [1 3], 2), d3(4:5, [1 3], 2)), 'fancy indexing');
 

@@ -38,10 +38,10 @@ writes → zarr-python verifies). It uses `.venv/bin/python` or
 - **Interop is the contract**: new dtypes/codecs/features need cases in
   `tools/interop_cases.py` + `tools/interop_matlab.m` proving both directions.
 - **No Python at runtime**: Python appears only in tests/CI.
-- **Compatibility**: code must run on R2022b+ (CI enforces this).
+- **Compatibility**: code must run on R2023a+ (CI enforces this).
 
 ## CI
 
-- `ci.yml` — test matrix (Linux/Windows/macOS × latest, plus R2022b).
+- `ci.yml` — test matrix (Linux/Windows/macOS × latest, plus R2023a).
 - `build-mex.yml` — builds relocatable MEX binaries on all platforms;
   attaches archives and the `.mltbx` to releases on `v*` tags.

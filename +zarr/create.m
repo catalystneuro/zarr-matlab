@@ -14,7 +14,10 @@ function z = create(store, shape, dtype, opts)
 %     Codecs          - cell array of codec objects. If it contains no
 %                       array->bytes codec, a little-endian BytesCodec is
 %                       inserted automatically (so {GzipCodec(5)} works).
-%     Attributes      - struct of user attributes
+%     Attributes      - user attributes, as a scalar struct or a
+%                       dictionary. A struct can only express keys that
+%                       are valid MATLAB identifiers; pass a dictionary
+%                       for any other key ("_DTYPE", "chunk size")
 %     DimensionNames  - string array (may contain missing for null)
 %     Order           - "C" (default) or "F"; "F" adds a transpose codec so
 %                       chunks are stored column-major (fast MATLAB I/O,
@@ -31,7 +34,7 @@ arguments
     opts.IndexLocation (1,1) string {mustBeMember(opts.IndexLocation, ["start", "end"])} = "end"
     opts.FillValue = []
     opts.Codecs cell = {}
-    opts.Attributes struct = struct()
+    opts.Attributes = struct()
     opts.DimensionNames string = string.empty
     opts.Order (1,1) string {mustBeMember(opts.Order, ["C", "F"])} = "C"
     opts.ChunkKeyEncoding (1,1) string {mustBeMember(opts.ChunkKeyEncoding, ["default", "v2"])} = "default"
@@ -130,7 +133,7 @@ end
 meta.chunkShape = chunkShape;
 meta.fillValue = fillValue;
 meta.codecs = codecs;
-meta.attributes = opts.Attributes;
+meta.attributes = zarr.internal.attribute_dictionary(opts.Attributes);
 if ~isempty(opts.DimensionNames)
     if numel(opts.DimensionNames) ~= R
         error("zarr:ShapeMismatch", "DimensionNames must have one entry per dimension.");

@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import zarr
 
-from interop_cases import CASES, pattern
+from interop_cases import RESERVED_ATTRS, CASES, pattern
 
 
 def main(root):
@@ -47,6 +47,11 @@ def main(root):
     np.testing.assert_array_equal(named[...], pattern((4, 6), "float64"))
     assert named.metadata.dimension_names == ("y", "x"), named.metadata.dimension_names
     assert named.attrs["units"] == "mm" and named.attrs["scale"] == 1.5
+
+    # The hdmf-zarr reserved names must come back exactly as they went out.
+    sub_attrs = dict(group["sub"].attrs)
+    for key, expected in RESERVED_ATTRS.items():
+        assert sub_attrs[key] == expected, f"{key}: {sub_attrs.get(key)!r} != {expected!r}"
 
     print(f"python verified {checked + 1} MATLAB-written arrays")
 
