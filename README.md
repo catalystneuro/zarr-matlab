@@ -137,7 +137,11 @@ identifiers, such as `_DTYPE` (hdmf-zarr's Zarr v3 convention), `chunk size`
 or `2d-extent`. Look one up with braces: `z.attrs{"units"}`. Keys nested
 inside an attribute *value* are exact too, and a JSON array always reads back
 as a cell, so a one-element list stays a list; use `cell2mat` where a numeric
-vector is wanted. Chunks are stored C-order per the spec; pass
+vector is wanted. A non-finite attribute is written as the bare token `NaN`,
+`Infinity` or `-Infinity`, matching zarr-python; these are its extension to
+JSON, so a strict parser will reject such a file while Python's `json` module
+reads it. (A `fill_value` is separate and uses the quoted `"NaN"` the Zarr v3
+spec requires.) Chunks are stored C-order per the spec; pass
 `Order="F"` to `zarr.create` to store column-major chunks (adds a spec-standard
 `transpose` codec — still fully readable by zarr-python — and makes MATLAB I/O
 copy-free).
