@@ -18,10 +18,14 @@ function txt = json_encode_exact(value)
 %   and writes as null.
 %
 %   Delegating the leaves keeps jsonencode's number formatting, string
-%   escaping and array shapes. That includes writing a non-finite number
-%   as null, which is what zarr-matlab has always done; zarr-python writes
-%   the bare tokens NaN, Infinity and -Infinity instead, which
-%   json_decode_exact reads but this encoder does not yet produce.
+%   escaping and array shapes. The one thing taken back from it is the
+%   non-finite number: jsonencode writes null, and zarr-python writes the
+%   bare token NaN, Infinity or -Infinity, so this encoder writes the
+%   token (see nonFiniteNumberText).
+%
+%   A fill_value is not an attribute and does not follow this rule: the
+%   Zarr v3 specification gives it the quoted strings "NaN", "Infinity"
+%   and "-Infinity", which zarr.internal.encode_fill_value_json writes.
 %
 %   Example: A key jsonencode cannot represent
 %       d = dictionary(string.empty, {});
@@ -51,8 +55,49 @@ elseif isnumeric(value) && isequal(size(value), [0 0])
     % null. An empty JSON *array* decodes to an empty cell, which
     % arrayText writes as [], so both stay distinguishable.
     txt = "null";
+elseif isfloat(value) && ~isempty(value) && ~all(isfinite(value(:)))
+    txt = nonFiniteNumberText(value);
 else
     txt = string(jsonencode(value));
+end
+end
+
+function txt = nonFiniteNumberText(value)
+%NONFINITENUMBERTEXT A float array holding NaN or Inf, as zarr-python writes it.
+%   zarr-python writes a non-finite number as the bare token NaN,
+%   Infinity or -Infinity. These are its extension to JSON rather than
+%   part of the standard, so Python's json module reads a store
+%   containing them and a strict parser rejects it. Writing them keeps a
+%   float distinct from a string holding the same text.
+%
+%   jsonencode already nests an array the way the format wants but
+%   renders every non-finite element as null, so the nesting is taken
+%   from it and each null replaced. jsonencode emits elements in
+%   row-major order -- v(:) after reversing the dimension order -- so the
+%   k-th null is the k-th non-finite element in that order.
+
+pieces = split(string(jsonencode(value)), "null");
+ordered = reshape(permute(value, ndims(value):-1:1), [], 1);
+tokens = arrayfun(@nonFiniteToken, ordered(~isfinite(ordered)));
+if numel(pieces) ~= numel(tokens) + 1
+    % Only a non-finite number makes jsonencode write null here, so the
+    % counts match unless that stops being true in a future release.
+    error("zarr:InvalidMetadata", ...
+        "Expected %d null(s) from jsonencode, got %d.", numel(tokens), numel(pieces) - 1);
+end
+txt = pieces(1);
+for i = 1:numel(tokens)
+    txt = txt + tokens(i) + pieces(i + 1);
+end
+end
+
+function token = nonFiniteToken(x)
+if isnan(x)
+    token = "NaN";
+elseif x > 0
+    token = "Infinity";
+else
+    token = "-Infinity";
 end
 end
 

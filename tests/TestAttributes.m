@@ -66,6 +66,49 @@ classdef TestAttributes < matlab.unittest.TestCase
             tc.verifyEqual([d{"a"}, d{"b"}, d{"c"}], [NaN, Inf, -Inf]);
         end
 
+        function nonFiniteNumbersEncodeAsTokens(tc)
+            % Written as bare tokens, not null: null reads back as None in
+            % zarr-python, losing the value, and a quoted "NaN" would read
+            % back as a string rather than a float.
+            txt = '{"a":NaN,"b":Infinity,"c":-Infinity}';
+            tc.verifyEqual(char(zarr.internal.json_encode_exact( ...
+                zarr.internal.json_decode_exact(txt))), txt);
+        end
+
+        function nonFiniteInsideAnArray(tc)
+            d = dictionary(string.empty, {});
+            d("series") = {[1 NaN 3]};
+            tc.verifyEqual(char(zarr.internal.json_encode_exact(d)), ...
+                '{"series":[1,NaN,3]}');
+        end
+
+        function nonFiniteKeepsJsonencodeNesting(tc, ndShape)
+            % Non-finite values are substituted into jsonencode's own
+            % output, so the nesting must be untouched at any rank. Mapping
+            % the tokens back to null has to reproduce jsonencode exactly.
+            v = reshape(1:prod(ndShape), ndShape);
+            v(2) = NaN;
+            v(end) = Inf;
+            written = char(zarr.internal.json_encode_exact(v));
+            asNull = strrep(strrep(written, 'NaN', 'null'), 'Infinity', 'null');
+            tc.verifyEqual(asNull, char(jsonencode(v)));
+        end
+
+        function finiteNumbersAreUntouched(tc)
+            % The non-finite path must not capture ordinary numbers.
+            v = [1 2.5 -3];
+            tc.verifyEqual(char(zarr.internal.json_encode_exact(v)), char(jsonencode(v)));
+        end
+
+        function fillValueKeepsQuotedForm(tc)
+            % A fill_value is not an attribute: the Zarr v3 specification
+            % gives it quoted "NaN", so it must not follow the bare-token
+            % rule that applies to attributes.
+            info = zarr.internal.dtype_info("float64");
+            tc.verifyEqual(char(zarr.internal.encode_fill_value_json(NaN, info)), '"NaN"');
+            tc.verifyEqual(char(zarr.internal.encode_fill_value_json(Inf, info)), '"Infinity"');
+        end
+
         function setAttrWritesUnderscoreKey(tc)
             store = tc.tempStore();
             g = zarr.create_group(store);
@@ -116,6 +159,13 @@ classdef TestAttributes < matlab.unittest.TestCase
             end
             tc.verifyEqual(sort(keys(zarr.open(store).attrs)), sort(awkward(:)));
         end
+    end
+
+    properties (TestParameter)
+        % Shapes that pin jsonencode's nesting: a singleton middle
+        % dimension stays a nesting level ([2 1 2]) while an array with one
+        % non-singleton dimension flattens ([1 1 2]).
+        ndShape = {[2 2], [2 3], [2 2 2], [2 1 2], [1 1 2], [3 2 2], [2 2 2 2]}
     end
 
     methods
