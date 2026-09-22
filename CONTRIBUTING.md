@@ -8,7 +8,7 @@ suite green, including the zarr-python interoperability tests.
 1. Clone and add the repo root to your MATLAB path.
 2. Python side (for interop tests):
    ```bash
-   python3 -m venv .venv && .venv/bin/pip install "zarr>=3" numpy
+   python3 -m venv .venv && .venv/bin/pip install "zarr>=3.4" numpy
    ```
 3. MEX codecs (zstd/blosc/fast crc32c) — optional but recommended:
    ```matlab
