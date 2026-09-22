@@ -24,7 +24,7 @@ opts.Description = "Zarr v3 for MATLAB: chunked, compressed N-D arrays with " + 
     "attributes, variable-length strings, zip stores, and consolidated " + ...
     "metadata. Byte-level interoperable with zarr-python.";
 opts.AuthorName = "Ben Dichter";
-opts.MinimumMatlabRelease = "R2022b";
+opts.MinimumMatlabRelease = "R2023a";
 opts.ToolboxMatlabPath = {char(stage)};
 opts.OutputFile = fullfile(root, "zarr-matlab-" + version + ".mltbx");
 

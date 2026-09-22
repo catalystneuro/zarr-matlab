@@ -43,7 +43,7 @@ end
 named = zarr.open(pyStore, Path="sub/named");
 assert(isequaln(named.read(), interop_pattern([4 6], "float64")), 'named data');
 assert(isequal(named.dimensionNames, ["y" "x"]), 'dimension_names');
-assert(named.attrs.units == "mm" && named.attrs.scale == 1.5, 'array attrs');
+assert(named.attrs{"units"} == "mm" && named.attrs{"scale"} == 1.5, 'array attrs');
 fprintf('MATLAB verified %d python-written arrays\n', numel(cases) + 1);
 
 % ---- write the mirror store for python to verify ----------------------

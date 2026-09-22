@@ -49,7 +49,9 @@ addpath('/path/to/zarr-matlab')
 run tools/build_mex.m   % MEX codecs: needs a C compiler + libzstd / libblosc
 ```
 
-Requires MATLAB R2022b or newer with a JVM (used for gzip compression).
+Requires MATLAB R2023a or newer with a JVM (used for gzip compression).
+R2023a is the release that added brace indexing for `dictionary`, which
+node attributes rely on.
 Everything except the `zstd`/`blosc` codecs works without the MEX binaries;
 opening data that needs them produces a clear error naming the missing codec.
 Intel-Mac users must build the MEX locally (no CI runners exist for maci64).

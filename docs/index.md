@@ -31,7 +31,7 @@ Windows, and Apple Silicon are included.
 `+zarr`) to your MATLAB path. Build the compression codecs once with
 `run tools/build_mex.m` (needs a C compiler plus libzstd/libblosc).
 
-Requires MATLAB **R2022b or newer** with a JVM (used for gzip).
+Requires MATLAB **R2023a or newer** with a JVM (used for gzip).
 
 ## Feature highlights
 

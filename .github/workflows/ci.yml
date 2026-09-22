@@ -23,7 +23,7 @@ jobs:
           - os: ubuntu-latest
             release: latest
           - os: ubuntu-latest
-            release: R2022b     # oldest supported release
+            release: R2023a     # oldest supported release
           - os: windows-latest
             release: latest
           - os: macos-latest
