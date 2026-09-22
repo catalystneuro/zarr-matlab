@@ -34,7 +34,7 @@ classdef TestZipAndConsolidated < matlab.unittest.TestCase
 
             rs = zarr.stores.ZipStore(p);
             g = zarr.open(rs);
-            tc.verifyEqual(g.attrs.k, 1);
+            tc.verifyEqual(g.attrs{"k"}, 1);
             tc.verifyEqual(g.item("d").read(), d);
             [an, ~] = g.children();
             tc.verifyEqual(an, "d");
@@ -108,7 +108,7 @@ classdef TestZipAndConsolidated < matlab.unittest.TestCase
             tc.verifyEqual(g.item("sub").item("y").read(), int32((1:3)'));
             tc.verifyEqual(g.item("x").read(), magic(4));
             % group attrs survive consolidation
-            tc.verifyEqual(string(g.attrs.t), "root");
+            tc.verifyEqual(g.attrs{"t"}, "root");
         end
 
         function consolidatedAvoidsStoreReads(tc)
@@ -135,7 +135,7 @@ classdef TestZipAndConsolidated < matlab.unittest.TestCase
             g = zarr.open(root);
             g.setAttr('new', 42);
             g2 = zarr.open(root);
-            tc.verifyEqual(g2.attrs.new, 42);
+            tc.verifyEqual(g2.attrs{"new"}, 42);
             tc.verifyNotEmpty(g2.meta.consolidated, 'consolidation survives setAttr');
         end
     end

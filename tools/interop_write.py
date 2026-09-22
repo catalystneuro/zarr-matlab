@@ -7,13 +7,13 @@ import sys
 import numpy as np
 import zarr
 
-from interop_cases import CASES, build_codec_kwargs, pattern
+from interop_cases import CASES, RESERVED_ATTRS, build_codec_kwargs, pattern
 
 
 def main(root):
     store = zarr.storage.LocalStore(root)
     group = zarr.create_group(store, attributes={"title": "interop", "answer": 42})
-    sub = group.create_group("sub", attributes={"depth": 1})
+    sub = group.create_group("sub", attributes={"depth": 1, **RESERVED_ATTRS})
 
     for name, dtype, shape, chunks, spec in CASES:
         kwargs = build_codec_kwargs(spec)

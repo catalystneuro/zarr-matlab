@@ -75,7 +75,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
         function readOverHttp(tc)
             store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
             g = zarr.open(store);
-            tc.verifyTrue(logical(g.attrs.served));
+            tc.verifyTrue(logical(g.attrs{"served"}));
             % children served from consolidated metadata (store is unlistable)
             [an, ~] = g.children();
             tc.verifyTrue(all(ismember(["a"; "s"], an)));

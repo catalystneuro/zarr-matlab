@@ -10,7 +10,9 @@ classdef ArrayMetadata
         keySeparator (1,1) string = "/"
         fillValue
         codecs cell
-        attributes struct = struct()
+        % Cell-valued dictionary so that attribute keys survive exactly;
+        % assigning a struct converts it (see set.attributes).
+        attributes = dictionary(string.empty, {})
         dimensionNames string = string.empty  % may contain missing for null
     end
 
@@ -85,8 +87,12 @@ classdef ArrayMetadata
             entries = zarr.metadata.ArrayMetadata.asList(m.codecs);
             obj.codecs = cellfun(@zarr.codecs.from_config, entries, 'UniformOutput', false);
 
-            if isfield(m, 'attributes') && isstruct(m.attributes)
-                obj.attributes = m.attributes;
+            % Attribute keys are read from the source text: jsondecode
+            % renames any key that is not a valid MATLAB identifier.
+            [attrKeys, attrVals] = zarr.internal.json_object_entries(txt);
+            aIdx = find(attrKeys == "attributes", 1);
+            if ~isempty(aIdx)
+                obj.attributes = zarr.internal.json_decode_exact(attrVals(aIdx));
             end
 
             if isfield(m, 'dimension_names') && ~isempty(m.dimension_names)
@@ -116,6 +122,13 @@ classdef ArrayMetadata
     end
 
     methods
+        function obj = set.attributes(obj, value)
+            % Accepts a dictionary or a scalar struct; always stores a
+            % cell-valued dictionary, so callers can keep passing structs
+            % for keys that are valid MATLAB identifiers.
+            obj.attributes = zarr.internal.attribute_dictionary(value);
+        end
+
         function txt = toJsonText(obj)
             info = zarr.internal.dtype_info(obj.dataType, obj.dataTypeConfig);
             pipeline = zarr.codecs.Pipeline(obj.codecs, info, obj.chunkShape);
@@ -136,8 +149,8 @@ classdef ArrayMetadata
                 """,""configuration"":{""separator"":""" + obj.keySeparator + """}}";
             parts(end + 1) = """fill_value"":" + zarr.internal.encode_fill_value_json(obj.fillValue, info);
             parts(end + 1) = """codecs"":" + pipeline.toJson();
-            if ~isempty(fieldnames(obj.attributes))
-                parts(end + 1) = """attributes"":" + string(jsonencode(obj.attributes));
+            if numEntries(obj.attributes) > 0
+                parts(end + 1) = """attributes"":" + zarr.internal.json_encode_exact(obj.attributes);
             end
             if ~isempty(obj.dimensionNames)
                 names = strings(1, numel(obj.dimensionNames));

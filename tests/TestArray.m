@@ -125,8 +125,8 @@ classdef TestArray < matlab.unittest.TestCase
             z = zarr.create(tc.store, 4, "float64", Attributes=struct('a', 1));
             z.setAttr('b', "two");
             z2 = zarr.open(tc.store);
-            tc.verifyEqual(z2.attrs.a, 1);
-            tc.verifyEqual(string(z2.attrs.b), "two");
+            tc.verifyEqual(z2.attrs{"a"}, 1);
+            tc.verifyEqual(z2.attrs{"b"}, "two");
         end
 
         function hierarchy(tc)
@@ -190,15 +190,15 @@ classdef TestArray < matlab.unittest.TestCase
             tc.verifyWarning(@() zarr.create_group(tc.store, Attributes=struct('other', 1)), ...
                 "zarr:NodeExists");
             g = zarr.open(tc.store);
-            tc.verifyEqual(string(g.attrs.subject), "M-042", 'existing attrs survive');
-            tc.verifyFalse(isfield(g.attrs, 'other'), 'new attrs are not applied');
+            tc.verifyEqual(g.attrs{"subject"}, "M-042", 'existing attrs survive');
+            tc.verifyFalse(isKey(g.attrs, "other"), 'new attrs are not applied');
         end
 
         function recreateWithoutAttributesIsSilent(tc)
             zarr.create_group(tc.store, Attributes=struct('subject', 'M-042'));
             g = tc.verifyWarningFree(@() zarr.create_group(tc.store), ...
                 'idempotent ensure-exists must not warn when no attributes are supplied');
-            tc.verifyEqual(string(g.attrs.subject), "M-042");
+            tc.verifyEqual(g.attrs{"subject"}, "M-042");
         end
 
         function rank1WriteWarnsOnNonVectorData(tc)

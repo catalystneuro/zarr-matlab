@@ -118,7 +118,7 @@ Attributes live in the array's `zarr.json` and are exposed as a struct:
 ```matlab
 za.setAttr('units', 'mV');
 za.setAttr('history', {"created", "cleaned"});
-assert(string(za.attrs.units) == "mV")
+assert(za.attrs{"units"} == "mV")
 za.setAttrs(struct('units', 'uV'));   % replace all attributes
 ```
 

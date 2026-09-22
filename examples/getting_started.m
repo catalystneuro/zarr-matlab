@@ -24,7 +24,7 @@ z(1, 1) = single(-40);             % read-modify-write of one chunk
 %% Reopen and inspect
 z2 = zarr.open(root, Path="temperature");
 disp(z2.shape)
-disp(z2.attrs)
+disp(z2.attrs)                 % dictionary; z2.attrs{"units"}
 disp(z2.dimensionNames)
 
 %% Groups and hierarchy

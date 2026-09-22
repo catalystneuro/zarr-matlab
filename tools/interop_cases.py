@@ -5,6 +5,17 @@ sides generate expected values independently, so no sidecar files are needed.
 """
 import numpy as np
 
+# Reserved attribute names of the hdmf-zarr Zarr v3 storage convention. Every
+# one begins with an underscore, which is not a valid MATLAB identifier, so
+# these only survive a MATLAB round trip because attributes are carried as a
+# dictionary rather than a struct.
+RESERVED_ATTRS = {
+    "_DTYPE": "object_reference",
+    "_REFERENCE_FIELDS": ["electrode"],
+    "_LINKS": [{"name": "device", "source": ".", "path": "/general/devices/probe"}],
+    "_REF_ATTR": {"_REFERENCE": {"path": "/general/electrodes", "source": "."}},
+}
+
 CASES = [
     # name, dtype, shape, chunks, codec spec
     ("f64_gzip", "float64", (10, 13), (4, 5), {"compressors": ["gzip5"]}),
