@@ -169,7 +169,7 @@ runs the full `matlab.unittest` suite in `tests/`, including a bidirectional
 interop test that has zarr-python write a store covering every dtype × codec ×
 sharding combination for MATLAB to verify, then verifies MATLAB's mirror
 output with zarr-python. The interop test looks for python in `.venv/bin/python`
-(create with `python3 -m venv .venv && .venv/bin/pip install "zarr>=3"`) or
+(create with `python3 -m venv .venv && .venv/bin/pip install "zarr>=3.4"`) or
 `$ZARR_MATLAB_PYTHON`, and skips cleanly when unavailable.
 
 ## Citation

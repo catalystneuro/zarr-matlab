@@ -5,7 +5,14 @@ function z = create(store, shape, dtype, opts)
 %   store  - directory path or zarr.stores.Store (the store ROOT)
 %   shape  - Zarr shape (row vector; [] creates a rank-0 scalar array,
 %            a scalar n creates a rank-1 array of length n)
-%   dtype  - MATLAB class name or Zarr data_type (default "double")
+%   dtype  - MATLAB class name or Zarr data_type (default "double"). For a
+%            data_type that needs a configuration -- a "struct" (whose
+%            elements are structs of named fields) or a
+%            "fixed_length_utf32" -- pass the data_type itself as
+%            a scalar struct with fields name and configuration, e.g.
+%              zarr.create(store, 3, struct('name', "struct", ...
+%                  'configuration', struct('fields', fields)))
+%            where fields is a struct array of {name, data_type} entries.
 %
 %   Options:
 %     Path            - node path within the store (default "" = root)
@@ -24,7 +31,7 @@ function z = create(store, shape, dtype, opts)
 arguments
     store
     shape (1,:) double {mustBeNonnegative, mustBeInteger}
-    dtype (1,1) string = "double"
+    dtype = "double"
     opts.Path (1,1) string = ""
     opts.ChunkShape (1,:) double = []
     opts.ShardShape (1,:) double = []
@@ -41,13 +48,24 @@ end
 
 store = zarr.internal.resolve_store(store);
 path = zarr.internal.normalize_path(opts.Path);
-tok = regexp(char(dtype), '^(?:numpy\.)?(datetime64|timedelta64)\[(\w+)\]$', 'tokens', 'once');
-if ~isempty(tok)
-    dataType = "numpy." + tok{1};
-    dtypeConfig = struct('unit', tok{2}, 'scale_factor', 1);
+if isstruct(dtype)
+    % A data_type that carries a configuration, in the same shape it takes
+    % on disk: {"name": ..., "configuration": ...}.
+    if ~isfield(dtype, 'name') || ~isfield(dtype, 'configuration')
+        error("zarr:UnsupportedDataType", ...
+            "A struct dtype must have both a name and a configuration field.");
+    end
+    dataType = string(dtype.name);
+    dtypeConfig = dtype.configuration;
 else
-    dataType = zarr.internal.normalize_dtype(dtype);
-    dtypeConfig = [];
+    tok = regexp(char(dtype), '^(?:numpy\.)?(datetime64|timedelta64)\[(\w+)\]$', 'tokens', 'once');
+    if ~isempty(tok)
+        dataType = "numpy." + tok{1};
+        dtypeConfig = struct('unit', tok{2}, 'scale_factor', 1);
+    else
+        dataType = zarr.internal.normalize_dtype(dtype);
+        dtypeConfig = [];
+    end
 end
 info = zarr.internal.dtype_info(dataType, dtypeConfig);
 dtypeConfig = info.config;
@@ -81,7 +99,7 @@ else
         fillValue = string(fillValue);
     elseif info.zarrType == "variable_length_bytes"
         fillValue = uint8(fillValue(:)');
-    elseif info.zarrType == "structured"
+    elseif info.isStructured
         if ~isstruct(fillValue)
             error("zarr:TypeMismatch", ...
                 "structured arrays take a scalar struct FillValue with one field per record field.");

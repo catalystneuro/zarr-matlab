@@ -15,6 +15,11 @@ switch name
         z = "string";
     case {"bytes", "variable_length_bytes"}
         z = "variable_length_bytes";
+    case {"struct", "structured", "fixed_length_utf32"}
+        % Named without a configuration, which these cannot do without.
+        % Pass them through so zarr.internal.dtype_info reports precisely
+        % what the configuration is missing.
+        z = name;
     otherwise
         error("zarr:UnsupportedDataType", ...
             "Unsupported data type '%s'. Use a MATLAB class name (e.g. 'double') or a Zarr v3 data_type (e.g. 'float64').", name);

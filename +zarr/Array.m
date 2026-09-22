@@ -490,7 +490,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                     error("zarr:TypeMismatch", ...
                         "variable_length_bytes arrays take cell arrays of uint8 vectors.");
                 end
-            elseif obj.info.zarrType == "structured"
+            elseif obj.info.isStructured
                 if ~isstruct(data)
                     error("zarr:TypeMismatch", ...
                         "structured arrays take a struct array with one field per record field.");

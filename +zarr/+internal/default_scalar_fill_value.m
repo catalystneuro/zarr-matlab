@@ -14,7 +14,7 @@ function fillValue = default_scalar_fill_value(info)
         fillValue = "";
     elseif info.zarrType == "variable_length_bytes"
         fillValue = uint8.empty(1, 0);
-    elseif info.zarrType == "structured"
+    elseif info.isStructured
         fillValue = zarr.internal.default_structured_fill_value(info);
     elseif info.isComplex
         fillValue = complex(cast(0, char(info.matlabClass)));

@@ -21,7 +21,7 @@ function fieldBytes = encode_scalar_field(values, fieldInfo, n, endian)
         endian (1,1) string {mustBeMember(endian, ["little", "big"])} = "little"
     end
 
-    if fieldInfo.zarrType == "structured"
+    if fieldInfo.isStructured
         fieldBytes = reshape(zarr.internal.encode_structured(values, fieldInfo, endian), fieldInfo.itemsize, n);
         return
     end

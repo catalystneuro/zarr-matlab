@@ -6,11 +6,8 @@ if info.zarrType == "string" || info.zarrType == "fixed_length_utf32"
     txt = string(jsonencode(char(v)));
 elseif info.zarrType == "variable_length_bytes"
     txt = """" + string(matlab.net.base64encode(uint8(v(:)'))) + """";
-elseif info.zarrType == "structured"
-    % See zarr.internal.decode_fill_value: structured fill_value bytes are
-    % base64 of the raw little-endian record bytes.
-    bytes = zarr.internal.encode_structured(v, info, "little");
-    txt = """" + string(matlab.net.base64encode(bytes)) + """";
+elseif info.isStructured
+    txt = structuredFillValueJson(v, info);
 elseif info.isComplex
     txt = "[" + floatJson(real(double(v))) + "," + floatJson(imag(double(v))) + "]";
 elseif info.zarrType == "bool"
@@ -32,4 +29,24 @@ elseif isinf(x)
 else
     s = string(sprintf('%.17g', x));
 end
+end
+
+function txt = structuredFillValueJson(v, info)
+%STRUCTUREDFILLVALUEJSON fill_value text, in the form its name uses.
+%   The canonical "struct" name writes an object of per-field fill values;
+%   the legacy "structured" name writes base64 of the raw little-endian
+%   element bytes. See zarr.internal.decode_fill_value, which reads both.
+
+if info.zarrType == "structured"
+    bytes = zarr.internal.encode_structured(v, info, "little");
+    txt = """" + string(matlab.net.base64encode(bytes)) + """";
+    return
+end
+parts = strings(1, numel(info.fields));
+for k = 1:numel(info.fields)
+    f = info.fields(k);
+    parts(k) = string(jsonencode(char(f.Name))) + ":" + ...
+        zarr.internal.encode_fill_value_json(v.(f.Name), f.Info);
+end
+txt = "{" + strjoin(parts, ",") + "}";
 end
