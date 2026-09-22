@@ -39,7 +39,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: .github/workflows/ci.yml
-      - run: pip install "zarr>=3" numpy
+      - run: pip install "zarr>=3.4" numpy
 
       # Restores the MATLAB install from the Actions cache on later runs.
       # (A containerized alternative exists — mathworks/matlab Docker images —
