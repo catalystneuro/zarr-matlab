@@ -85,5 +85,18 @@ classdef TestInternals < matlab.unittest.TestCase
             delete(out{1});
             tc.verifyEqual(back, payload);
         end
+
+        function gzipDecodesEveryMember(tc)
+            % Two gzip members back to back decode to both payloads in order.
+            first = uint8(1:200);
+            second = uint8(mod(0:299, 7));
+            gz = [zarr.internal.gzip_java('compress', first, 5), ...
+                zarr.internal.gzip_java('compress', second, 5)];
+            tc.verifyEqual(zarr.internal.gzip_java('decompress', gz), [first, second]);
+
+            % A corrupted second member is still detected.
+            gz(end - 8) = bitxor(gz(end - 8), 1);
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', gz), "zarr:CodecError");
+        end
     end
 end
