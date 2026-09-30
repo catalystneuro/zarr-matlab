@@ -28,17 +28,23 @@ end
 % Keep segs a row vector throughout: deleting the last element of a column
 % string array flips it to 1x0, after which (end+1,1) assignment gap-fills
 % with <missing>.
-segs = reshape(segs(strlength(segs) > 0), 1, []);
+segs = reshape(segs(strlength(segs) > 0 & segs ~= "."), 1, []);
 leadingSlash = ~isHttp && startsWith(strrep(base, "\", "/"), "/");
+% A relative base can climb above its first segment: the result keeps the
+% leading ".." segments and is resolved later against the current folder.
+isRelativeBase = ~isHttp && ~leadingSlash && isempty(regexp(base, '^[A-Za-z]:', 'once'));
 
 for s = reshape(split(strrep(rel, "\", "/"), "/"), 1, [])
     if s == "" || s == "."
         continue
     elseif s == ".."
-        if isempty(segs)
+        if ~isempty(segs) && segs(end) ~= ".."
+            segs(end) = [];
+        elseif isRelativeBase
+            segs(end + 1) = s; %#ok<AGROW>
+        else
             error("zarr:StoreError", "Relative path '%s' escapes above the root.", rel);
         end
-        segs(end) = [];
     else
         segs(end + 1) = s; %#ok<AGROW>
     end

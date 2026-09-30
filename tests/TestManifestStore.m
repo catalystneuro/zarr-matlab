@@ -108,5 +108,20 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative("https://h.com/x", ...
                 "../../../d"), "zarr:StoreError");
         end
+
+        function relativeBaseKeepsLeadingParents(tc)
+            % A relative base resolves against the current folder, so ".."
+            % past its first segment stays in the result.
+            tc.verifyEqual(zarr.internal.resolve_relative("../idx.zarr", "../../data.bin"), ...
+                "../../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("idx.zarr", "../../data.bin"), ...
+                "../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("./idx.zarr", "../../data.bin"), ...
+                "../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("a/idx.zarr", "../data.bin"), ...
+                "a/data.bin");
+            tc.verifyError(@() zarr.internal.resolve_relative("/idx.zarr", "../../data.bin"), ...
+                "zarr:StoreError");
+        end
     end
 end
