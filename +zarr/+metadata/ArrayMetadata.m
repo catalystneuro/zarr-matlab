@@ -85,11 +85,13 @@ classdef ArrayMetadata
             if isfield(m, 'dimension_names') && ~isempty(m.dimension_names)
                 names = zarr.metadata.ArrayMetadata.asList(m.dimension_names);
                 dn = strings(1, numel(names));
+                % jsondecode returns a name as char ('' for ""), and null as
+                % [] or NaN, so only non-char entries are null.
                 for i = 1:numel(names)
-                    if isempty(names{i})
-                        dn(i) = missing;
-                    else
+                    if ischar(names{i})
                         dn(i) = string(names{i});
+                    else
+                        dn(i) = missing;
                     end
                 end
                 obj.dimensionNames = dn;

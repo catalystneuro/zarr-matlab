@@ -145,6 +145,21 @@ classdef TestMetadata < matlab.unittest.TestCase
             tc.verifyTrue(ismissing(m2.dimensionNames(2)));
         end
 
+        function emptyDimensionNameIsNotNull(tc)
+            meta = zarr.metadata.ArrayMetadata();
+            meta.shape = [2 3 4];
+            meta.dataType = "int8";
+            meta.chunkShape = [2 3 4];
+            meta.fillValue = int8(0);
+            meta.codecs = {zarr.codecs.BytesCodec()};
+            meta.dimensionNames = ["" missing "x"];
+            m2 = tc.roundTrip(meta);
+            tc.verifyEqual(m2.dimensionNames(1), "");
+            tc.verifyTrue(ismissing(m2.dimensionNames(2)));
+            tc.verifyEqual(m2.dimensionNames(3), "x");
+            tc.verifySubstring(char(m2.toJsonText()), '"dimension_names":["",null,"x"]');
+        end
+
         function singletonShapeStaysList(tc)
             % the classic jsonencode trap: [5] must not serialize as 5
             meta = zarr.metadata.ArrayMetadata();
