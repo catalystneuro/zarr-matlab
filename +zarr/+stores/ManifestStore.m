@@ -25,7 +25,6 @@ classdef ManifestStore < zarr.stores.Store
         metaStore                % LocalStore/HttpStore over the index dir
         chunkMap                 % containers.Map: key -> entry struct
         defaultPath (1,1) string = ""
-        httpCache                % containers.Map: base url -> HttpStore
         isHttp (1,1) logical
     end
 
@@ -38,7 +37,6 @@ classdef ManifestStore < zarr.stores.Store
             else
                 obj.metaStore = zarr.stores.LocalStore(obj.root);
             end
-            obj.httpCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             [bytes, found] = obj.metaStore.get("manifest.json");
             if ~found
@@ -155,16 +153,9 @@ classdef ManifestStore < zarr.stores.Store
             n = min(len, double(entry.length) - offset);
             resolved = zarr.internal.resolve_relative(obj.root, target);
             if startsWith(resolved, "http://") || startsWith(resolved, "https://")
-                slash = find(char(resolved) == '/', 1, 'last');
-                dirUrl = extractBefore(resolved, slash);
-                name = extractAfter(resolved, slash);
-                if obj.httpCache.isKey(char(dirUrl))
-                    hs = obj.httpCache(char(dirUrl));
-                else
-                    hs = zarr.stores.HttpStore(dirUrl);
-                    obj.httpCache(char(dirUrl)) = hs;
-                end
-                [data, found] = hs.getPartial(name, base + offset, n);
+                % A manifest path is a URL, already percent-encoded and possibly
+                % carrying a query string, so it is requested exactly as written.
+                [data, found] = zarr.stores.HttpStore.readRange(resolved, base + offset, n);
             else
                 fid = fopen(resolved, 'r');
                 found = fid ~= -1;

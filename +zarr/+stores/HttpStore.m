@@ -20,23 +20,15 @@ classdef HttpStore < zarr.stores.Store
         end
 
         function [data, found] = get(obj, key)
-            [data, found] = obj.fetch(key, []);
+            [data, found] = zarr.stores.HttpStore.fetch(obj.keyUrl(key), []);
         end
 
         function [data, found] = getPartial(obj, key, offset, len)
-            [data, found] = obj.fetch(key, sprintf('bytes=%d-%d', offset, offset + len - 1));
-            if ~found
-                return
-            end
-            if numel(data) > len
-                % Server ignored the Range header and sent the whole object.
-                first = offset + 1;
-                data = data(first:min(offset + len, numel(data)));
-            end
+            [data, found] = zarr.stores.HttpStore.readRange(obj.keyUrl(key), offset, len);
         end
 
         function [data, found] = getSuffix(obj, key, len)
-            [data, found] = obj.fetch(key, sprintf('bytes=-%d', len));
+            [data, found] = zarr.stores.HttpStore.fetch(obj.keyUrl(key), sprintf('bytes=-%d', len));
             if ~found
                 return
             end
@@ -68,12 +60,34 @@ classdef HttpStore < zarr.stores.Store
         end
     end
 
+    methods (Static, Access = {?zarr.stores.ManifestStore})
+        function [data, found] = readRange(url, offset, len)
+            %READRANGE Read len bytes at 0-based offset from a complete URL.
+            %   url is used as given, so it must already be percent-encoded.
+            [data, found] = zarr.stores.HttpStore.fetch(url, ...
+                sprintf('bytes=%d-%d', offset, offset + len - 1));
+            if ~found
+                return
+            end
+            if numel(data) > len
+                % Server ignored the Range header and sent the whole object.
+                first = offset + 1;
+                data = data(first:min(offset + len, numel(data)));
+            end
+        end
+    end
+
     methods (Access = private)
-        function [data, found] = fetch(obj, key, rangeHeader)
+        function url = keyUrl(obj, key)
             % Percent-encode characters that would change URL semantics
             % ('#' starts a fragment; .mat-derived stores use '#refs#').
             key = strrep(strrep(strrep(string(key), "%", "%25"), "#", "%23"), " ", "%20");
             url = obj.baseUrl + "/" + key;
+        end
+    end
+
+    methods (Static, Access = private)
+        function [data, found] = fetch(url, rangeHeader)
             headers = {};
             if ~isempty(rangeHeader)
                 headers = {'Range', rangeHeader};

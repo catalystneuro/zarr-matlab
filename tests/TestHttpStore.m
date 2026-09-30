@@ -4,6 +4,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
 
     properties
         root
+        servedRoot
         port
         proc
         python
@@ -28,8 +29,8 @@ classdef TestHttpStore < matlab.unittest.TestCase
             % port file is outside the served tree.
             tc.root = fullfile(tempdir, "zm_http_" + string(feature('getpid')));
             if isfolder(tc.root), rmdir(tc.root, 's'); end
-            storeRoot = fullfile(tc.root, "store");
-            ls = zarr.stores.LocalStore(storeRoot);
+            tc.servedRoot = fullfile(tc.root, "store");
+            ls = zarr.stores.LocalStore(tc.servedRoot);
             zarr.create_group(ls, Attributes=struct('served', true));
             zarr.create(ls, [10 8], "float64", Path="a", ChunkShape=[5 4], ...
                 Codecs={zarr.codecs.GzipCodec(5)}).write(reshape(1:80, [10 8]));
@@ -53,7 +54,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 "server.serve_forever()";
             portFile = fullfile(tc.root, "port");
             cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>/dev/null & echo $!', ...
-                tc.python, serverCode, storeRoot, portFile);
+                tc.python, serverCode, tc.servedRoot, portFile);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
@@ -122,6 +123,34 @@ classdef TestHttpStore < matlab.unittest.TestCase
             [~, found] = store.get("nope/zarr.json");
             tc.verifyFalse(found);
             tc.verifyError(@() zarr.open(store, Path="nope"), "zarr:NodeNotFound");
+        end
+
+        function manifestUrlIsRequestedAsWritten(tc)
+            % A manifest path is an encoded URL: "%20" names a space, and a
+            % query string may contain "/".
+            src = zarr.stores.MemoryStore();
+            d = int32(1:6)';
+            zarr.create(src, 6, "int32", ChunkShape=6).write(d);
+            [chunk, ~] = src.get("c/0");
+            [meta, ~] = src.get("zarr.json");
+            fid = fopen(fullfile(tc.servedRoot, "a b.bin"), 'w');
+            fwrite(fid, chunk);
+            fclose(fid);
+
+            fileUrl = sprintf("http://127.0.0.1:%d/a%%20b.bin", tc.port);
+            for url = [fileUrl, fileUrl + "?sig=x/y%2Fz"]
+                indexDir = tc.applyFixture(matlab.unittest.fixtures.TemporaryFolderFixture).Folder;
+                fid = fopen(fullfile(indexDir, "zarr.json"), 'w');
+                fwrite(fid, meta);
+                fclose(fid);
+                fid = fopen(fullfile(indexDir, "manifest.json"), 'w');
+                fwrite(fid, unicode2native(char("{""chunks"":{""c/0"":{""path"":""" + url + ...
+                    """,""offset"":0,""length"":" + numel(chunk) + "}}}"), 'UTF-8'));
+                fclose(fid);
+
+                z = zarr.open(zarr.stores.ManifestStore(indexDir));
+                tc.verifyEqual(z(:), d, "URL: " + url);
+            end
         end
 
         function readOnlyEnforced(tc)
