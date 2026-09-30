@@ -5,6 +5,7 @@ classdef CountingStore < zarr.stores.Store
         nFullGets (1,1) double = 0
         nPartialGets (1,1) double = 0
         nSuffixGets (1,1) double = 0
+        bytesRead (1,1) double = 0   % bytes returned for chunk keys
     end
 
     properties (Access = private)
@@ -17,20 +18,23 @@ classdef CountingStore < zarr.stores.Store
         end
 
         function [data, found] = get(obj, key)
+            [data, found] = obj.inner.get(key);
             if ~endsWith(string(key), "zarr.json")
                 obj.nFullGets = obj.nFullGets + 1;
+                obj.bytesRead = obj.bytesRead + numel(data);
             end
-            [data, found] = obj.inner.get(key);
         end
 
         function [data, found] = getPartial(obj, key, offset, len)
             obj.nPartialGets = obj.nPartialGets + 1;
             [data, found] = obj.inner.getPartial(key, offset, len);
+            obj.bytesRead = obj.bytesRead + numel(data);
         end
 
         function [data, found] = getSuffix(obj, key, len)
             obj.nSuffixGets = obj.nSuffixGets + 1;
             [data, found] = obj.inner.getSuffix(key, len);
+            obj.bytesRead = obj.bytesRead + numel(data);
         end
 
         function tf = exists(obj, key)
@@ -57,6 +61,7 @@ classdef CountingStore < zarr.stores.Store
             obj.nFullGets = 0;
             obj.nPartialGets = 0;
             obj.nSuffixGets = 0;
+            obj.bytesRead = 0;
         end
     end
 end

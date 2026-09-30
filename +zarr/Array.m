@@ -69,11 +69,16 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 zarr.internal.mshape(count), obj.info);
             parts = zarr.internal.chunk_intersections(start - 1, count, obj.meta.chunkShape);
             sh = obj.pipeline.soleSharding();
+            bc = obj.pipeline.soleBytes();
             for t = 1:numel(parts)
                 p = parts(t);
                 key = obj.chunkStoreKey(p.coords);
                 if ~isempty(sh)
                     out = obj.readFromShard(sh, key, p, out);
+                    continue
+                end
+                if ~isempty(bc) && p.inCount(1) < obj.meta.chunkShape(1)
+                    out = obj.readRows(bc, key, p, out);
                     continue
                 end
                 [bytes, found] = obj.store.get(key);
@@ -435,6 +440,26 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                     error("zarr:Indexing", "Empty subscripts are not supported.");
                 end
             end
+        end
+
+        function out = readRows(obj, bc, key, p, out)
+            %READROWS Partial read of an uncompressed chunk: fetch only the
+            %   rows along the first axis that the region touches. The chunk
+            %   is stored in C order, so those rows are one contiguous run of
+            %   bytes, read with a single ranged request.
+            cs = obj.meta.chunkShape;
+            rowBytes = obj.info.itemsize * prod(cs(2:end));
+            rows = p.inCount(1);
+            [bytes, found] = obj.store.getPartial(key, p.inStart(1) * rowBytes, rows * rowBytes);
+            if ~found
+                return  % missing chunk -> fill (already prefilled)
+            end
+            chunk = bc.decode(bytes, obj.info, [rows, cs(2:end)], obj.meta.fillValue);
+            inStart = p.inStart;
+            inStart(1) = 0;
+            src = subsFor(inStart, p.inCount);
+            dst = subsFor(p.outStart, p.inCount);
+            out(dst{:}) = chunk(src{:});
         end
 
         function out = readFromShard(obj, sh, key, p, out)
