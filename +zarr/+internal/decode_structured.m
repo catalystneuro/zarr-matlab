@@ -1,7 +1,7 @@
 function records = decode_structured(bytes, info, n, endian)
 %DECODE_STRUCTURED Decode n consecutive "structured" (compound record) elements.
 %   bytes is a 1-by-(n*info.itemsize) uint8 vector. Returns an n-by-1
-%   struct array with one field per info.fields entry (info.fields(k).Name),
+%   struct array with one field per info.fields entry (info.fields(k).MatlabName),
 %   each holding that field's decoded scalar value.
 %
 %   Decodes one field at a time across all n records (via
@@ -31,7 +31,7 @@ function records = decode_structured(bytes, info, n, endian)
         f = info.fields(k);
         fieldBytes = b(f.Offset + 1 : f.Offset + f.Info.itemsize, :);
         values = zarr.internal.decode_scalar_field(fieldBytes, f.Info, n, endian);
-        args{2 * k - 1} = char(f.Name);
+        args{2 * k - 1} = char(f.MatlabName);
         args{2 * k} = num2cell(reshape(values, n, 1));
     end
     records = struct(args{:});

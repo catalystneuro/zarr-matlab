@@ -493,6 +493,36 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyClass(fields, 'cell');
             tc.verifyNumElements(fields, 1);
         end
+
+        function fieldNamesThatAreNotIdentifiers(tc)
+            % "x-y" is not a MATLAB identifier. Its valid name, "x_y", is also
+            % the second field's name, so the second field gets a distinct one.
+            dtypeJson = struct('name', "structured", 'configuration', struct( ...
+                'fields', {{{'x-y', 'int32'}; {'x_y', 'int16'}}}));
+            info = zarr.internal.dtype_info(dtypeJson);
+            tc.verifyEqual([info.fields.Name], ["x-y", "x_y"]);
+            tc.verifyEqual([info.fields.MatlabName], ["x_y", "x_y_1"]);
+
+            meta = zarr.metadata.ArrayMetadata();
+            meta.shape = 2;
+            meta.dataType = "structured";
+            meta.dataTypeConfig = info.config;
+            meta.chunkShape = 2;
+            meta.fillValue = zarr.internal.default_structured_fill_value(info);
+            meta.codecs = {zarr.codecs.BytesCodec()};
+            store = zarr.stores.MemoryStore();
+            store.set("zarr.json", unicode2native(char(meta.toJsonText()), 'UTF-8'));
+
+            records = struct('x_y', {int32(1); int32(2)}, 'x_y_1', {int16(-1); int16(-2)});
+            zarr.Array(store, "", meta).write(records);
+            back = zarr.open(store).read();
+            tc.verifyEqual([back.x_y], int32([1 2]));
+            tc.verifyEqual([back.x_y_1], int16([-1 -2]));
+
+            % The metadata keeps the original names.
+            [bytes, ~] = store.get("zarr.json");
+            tc.verifySubstring(native2unicode(bytes, 'UTF-8'), '"x-y"');
+        end
     end
 
     properties (TestParameter)

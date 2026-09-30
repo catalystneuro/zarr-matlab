@@ -15,9 +15,12 @@ function info = dtype_info(dtype, config)
 %                   structured type, config.fields is an Nx1 cell, so that
 %                   it is written back as a JSON list even with one field
 %     fields      - when isStructured, a struct array (one entry per
-%                   field) with fields Name, Info (this same dtype_info
-%                   struct, recursively), Offset (0-based byte offset
-%                   within the element); [] otherwise
+%                   field) with fields Name (the field name in the
+%                   metadata), MatlabName (a valid, unique MATLAB field
+%                   name derived from Name; the two differ when Name is
+%                   not a valid identifier, e.g. "x-y" -> "x_y"), Info
+%                   (this same dtype_info struct, recursively), Offset
+%                   (0-based byte offset within the element); [] otherwise
 %
 %   A structured data type -- one whose elements are structs of named
 %   fields, what HDF5 and hdmf call a compound type -- has two data_type
@@ -172,7 +175,7 @@ function [fields, entries] = structuredFieldInfo(rawFields, dtype)
 %   one-entry list of objects as a 1x1 struct, which jsonencode writes as
 %   an object; a cell is always written as a list.
 
-fields = struct('Name', {}, 'Info', {}, 'Offset', {});
+fields = struct('Name', {}, 'MatlabName', {}, 'Info', {}, 'Offset', {});
 rawEntries = zarr.metadata.ArrayMetadata.asList(rawFields);
 entries = cell(numel(rawEntries), 1);
 offset = 0;
@@ -194,8 +197,15 @@ for i = 1:numel(rawEntries)
         end
     end
     entries{i} = entry;
-    fields(end + 1) = struct('Name', name, 'Info', subInfo, 'Offset', offset); %#ok<AGROW>
+    fields(end + 1) = struct('Name', name, 'MatlabName', "", 'Info', subInfo, ...
+        'Offset', offset); %#ok<AGROW>
     offset = offset + subInfo.itemsize;
+end
+% A numpy field name can be any string, but a MATLAB struct field must be
+% a valid identifier, and two names can map to the same identifier.
+if ~isempty(fields)
+    matlabNames = num2cell(matlab.lang.makeUniqueStrings(matlab.lang.makeValidName([fields.Name])));
+    [fields.MatlabName] = matlabNames{:};
 end
 end
 
