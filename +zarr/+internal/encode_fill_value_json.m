@@ -29,6 +29,11 @@ if isnan(x)
     s = """NaN""";
 elseif isinf(x)
     if x > 0, s = """Infinity"""; else, s = """-Infinity"""; end
+elseif x == 0 && 1/x < 0
+    % Spelled with a decimal point: a JSON parser that takes the bare
+    % integer-looking token "-0" through an integer path (Python's json
+    % does) returns +0 and drops the sign bit.
+    s = "-0.0";
 else
     s = string(sprintf('%.17g', x));
 end

@@ -102,9 +102,34 @@ classdef TestMetadata < matlab.unittest.TestCase
             meta.chunkShape = 2;
             meta.fillValue = -0.0;
             meta.codecs = {zarr.codecs.BytesCodec()};
+            % Spelled as a float token so that Python's json keeps the sign too.
+            tc.verifySubstring(char(meta.toJsonText()), '"fill_value":-0.0');
             m2 = tc.roundTrip(meta);
             tc.verifyEqual(typecast(m2.fillValue, 'uint64'), ...
                 typecast(-0.0, 'uint64'), 'sign bit preserved');
+        end
+
+        function negativeZeroFillFromText(tc)
+            % Other writers spell negative zero in several ways; the sign
+            % bit must survive each of them, for float32 as well.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2],' ...
+                '"data_type":"%s",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":%s,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}]}'];
+            for tok = ["-0", "-0.0", "-0e0"]
+                meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float64", tok));
+                tc.verifyEqual(typecast(meta.fillValue, 'uint64'), ...
+                    typecast(-0.0, 'uint64'), "float64 token " + tok);
+                meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float32", tok));
+                tc.verifyClass(meta.fillValue, 'single');
+                tc.verifyEqual(typecast(meta.fillValue, 'uint32'), ...
+                    typecast(-single(0), 'uint32'), "float32 token " + tok);
+            end
+            % a positive zero must not acquire a sign
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float64", "0.0"));
+            tc.verifyEqual(typecast(meta.fillValue, 'uint64'), uint64(0));
         end
 
         function dimensionNamesWithNull(tc)
