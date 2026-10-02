@@ -86,12 +86,18 @@ classdef ArrayMetadata
                 names = zarr.metadata.ArrayMetadata.asList(m.dimension_names);
                 dn = strings(1, numel(names));
                 % jsondecode returns a name as char ('' for ""), and null as
-                % [] or NaN, so only non-char entries are null.
+                % [] or NaN. A number or boolean decodes to a double or
+                % logical; mapping it to null would rewrite the file with
+                % different metadata on the next write, so it is an error.
                 for i = 1:numel(names)
-                    if ischar(names{i})
-                        dn(i) = string(names{i});
-                    else
+                    entry = names{i};
+                    if ischar(entry)
+                        dn(i) = string(entry);
+                    elseif isnumeric(entry) && (isempty(entry) || (isscalar(entry) && isnan(entry)))
                         dn(i) = missing;
+                    else
+                        error("zarr:InvalidMetadata", ...
+                            "dimension_names entry %d must be a string or null.", i);
                     end
                 end
                 obj.dimensionNames = dn;

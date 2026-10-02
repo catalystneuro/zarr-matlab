@@ -160,6 +160,29 @@ classdef TestMetadata < matlab.unittest.TestCase
             tc.verifySubstring(char(m2.toJsonText()), '"dimension_names":["",null,"x"]');
         end
 
+        function rejectsNonStringDimensionName(tc)
+            % A number or boolean in dimension_names is neither a name nor
+            % null, so parsing must fail rather than read it back as null.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2,3],' ...
+                '"data_type":"int8",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2,3]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":0,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}],' ...
+                '"dimension_names":%s}'];
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x",5]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '[true,"y"]')), "zarr:InvalidMetadata");
+            % Both spellings of null that jsondecode produces still read as
+            % missing: [] in a mixed list, NaN in an all-null list.
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '["",null]'));
+            tc.verifyEqual(meta.dimensionNames(1), "");
+            tc.verifyTrue(ismissing(meta.dimensionNames(2)));
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '[null,null]'));
+            tc.verifyTrue(all(ismissing(meta.dimensionNames)));
+        end
+
         function singletonShapeStaysList(tc)
             % the classic jsonencode trap: [5] must not serialize as 5
             meta = zarr.metadata.ArrayMetadata();
