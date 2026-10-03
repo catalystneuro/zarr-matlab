@@ -97,7 +97,17 @@ if startsWith(text, "{")
     end
     return
 end
+if ~startsWith(text, """")
+    error("zarr:InvalidFillValue", ...
+        "The fill_value of a %s data type must be an object of field values " + ...
+        "or a base64 string, not %s.", info.zarrType, text);
+end
 rawBytes = reshape(matlab.net.base64decode(jsondecode(char(text))), 1, []);
+if numel(rawBytes) ~= info.itemsize
+    error("zarr:InvalidFillValue", ...
+        "The base64 fill_value of a %s data type holds %d bytes, but its " + ...
+        "elements are %d bytes.", info.zarrType, numel(rawBytes), info.itemsize);
+end
 records = zarr.internal.decode_structured(rawBytes, info, 1, "little");
 v = records(1);
 end

@@ -313,6 +313,15 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyEqual(back.x_y, int32(5));
         end
 
+        function malformedFillValueErrors(tc)
+            % Neither an object nor a string, or a string of the wrong size.
+            info = zarr.internal.dtype_info(tc.canonicalDtypeJson());
+            for text = ["[7, 1.5, ""x""]", "0", "null", """AAAA"""]
+                tc.verifyError(@() zarr.internal.decode_fill_value(text, info), ...
+                    "zarr:InvalidFillValue", text);
+            end
+        end
+
         function createStructArrayEndToEnd(tc)
             % The public creation path: a data_type struct passed to
             % zarr.create, written and read back through zarr.open.
