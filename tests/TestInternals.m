@@ -142,5 +142,17 @@ classdef TestInternals < matlab.unittest.TestCase
             member(end-3) = member(end-3) + 1;
             tc.verifyError(@() zarr.internal.gzip_java('decompress', member), "zarr:CodecError");
         end
+
+        function gzipLaterMemberCases(tc)
+            % A later member with a file name field decodes, and one cut inside
+            % its trailer is a codec error.
+            firstMember = zarr.internal.gzip_java('compress', uint8(1:50), 5);
+            plain = zarr.internal.gzip_java('compress', uint8(51:90), 5);
+            fnameFlag = uint8(8);
+            named = [plain(1:3), fnameFlag, plain(5:10), uint8('part2.bin'), uint8(0), plain(11:end)];
+            tc.verifyEqual(zarr.internal.gzip_java('decompress', [firstMember, named]), uint8(1:90));
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', [firstMember, plain(1:end-4)]), ...
+                "zarr:CodecError");
+        end
     end
 end
