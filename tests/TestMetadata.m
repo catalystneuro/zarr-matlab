@@ -247,6 +247,18 @@ classdef TestMetadata < matlab.unittest.TestCase
             tc.verifyEqual(gm2.attributes{"b"}, "text");
         end
 
+        function emptyConsolidatedBlockIsConsolidated(tc)
+            % "metadata":{} states that a consolidated group has no children,
+            % which differs from a group with no consolidated metadata.
+            withBlock = zarr.metadata.GroupMetadata.fromJsonText( ...
+                ['{"zarr_format":3,"node_type":"group","consolidated_metadata":' ...
+                '{"kind":"inline","must_understand":false,"metadata":{}}}']);
+            withoutBlock = zarr.metadata.GroupMetadata.fromJsonText( ...
+                '{"zarr_format":3,"node_type":"group"}');
+            tc.verifyTrue(withBlock.isConsolidated());
+            tc.verifyFalse(withoutBlock.isConsolidated());
+        end
+
         function datetimeDtypeRoundTrip(tc)
             txt = ['{"zarr_format":3,"node_type":"array","shape":[4],' ...
                 '"data_type":{"name":"numpy.datetime64","configuration":' ...

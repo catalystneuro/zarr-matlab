@@ -25,7 +25,8 @@ classdef TestHttpStore < matlab.unittest.TestCase
             end
             tc.assumeTrue(strlength(tc.python) > 0, 'python not found');
 
-            % Build a store to serve: array + shards + strings + consolidated.
+            % Build a store to serve: array + shards + strings + empty group
+            % + consolidated.
             % The store sits in a subfolder of tc.root so that the server's
             % port file is outside the served tree.
             tc.root = fullfile(tempdir, "zm_http_" + string(feature('getpid')));
@@ -38,6 +39,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
             zs = zarr.create(ls, [8 8], "int32", Path="s", ChunkShape=[2 2], ...
                 ShardShape=[8 8]);
             zs.write(reshape(int32(1:64), [8 8]));
+            zarr.create_group(ls, Path="empty");
             zarr.consolidate_metadata(ls);
 
             % Serve with socketserver rather than `python -m http.server`:
@@ -120,6 +122,24 @@ classdef TestHttpStore < matlab.unittest.TestCase
             s = g.item("s");
             d = reshape(int32(1:64), [8 8]);
             tc.verifyEqual(s(3:4, 5:6), d(3:4, 5:6));
+        end
+
+        function emptyGroupIsBrowsedWithoutRequests(tc)
+            % Consolidated metadata states that the group has no children, so
+            % browsing it needs no listing, which an HTTP store cannot give.
+            store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
+            rootGroup = zarr.open(store);
+            emptyGroup = rootGroup.item("empty");
+            loggedRequests = string(fileread(tc.requestLog));
+
+            [arrayNames, groupNames] = emptyGroup.children();
+            tc.verifyEqual(arrayNames, string.empty(0, 1));
+            tc.verifyEqual(groupNames, string.empty(0, 1));
+            tc.verifyFalse(emptyGroup.isKey("missing"));
+            treeText = string(evalc("rootGroup.tree()"));  % capture the printed tree
+            tc.verifySubstring(treeText, "|- empty/");
+            tc.verifyEqual(string(fileread(tc.requestLog)), loggedRequests, ...
+                "Browsing an empty group must not send requests.");
         end
 
         function missingKeyIsNotFound(tc)

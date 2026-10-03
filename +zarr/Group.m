@@ -44,7 +44,7 @@ classdef Group < handle
             %   extra store reads); falls back to the store otherwise.
             rel = zarr.internal.normalize_path(name);
             full = obj.childPath(name);
-            if ~isempty(obj.meta.consolidated) && obj.meta.consolidated.isKey(char(rel))
+            if obj.meta.isConsolidated() && obj.meta.consolidated.isKey(char(rel))
                 txt = obj.meta.consolidated(char(rel));
                 m = jsondecode(char(txt));
                 if strcmp(m.node_type, 'array')
@@ -62,7 +62,7 @@ classdef Group < handle
 
         function tf = isKey(obj, name)
             rel = zarr.internal.normalize_path(name);
-            if ~isempty(obj.meta.consolidated)
+            if obj.meta.isConsolidated()
                 tf = obj.meta.consolidated.isKey(char(rel));
                 return
             end
@@ -72,7 +72,7 @@ classdef Group < handle
         function [arrayNames, groupNames] = children(obj)
             arrayNames = string.empty(0, 1);
             groupNames = string.empty(0, 1);
-            if ~isempty(obj.meta.consolidated)
+            if obj.meta.isConsolidated()
                 paths = string(obj.meta.consolidated.keys())';
                 direct = paths(~contains(paths, "/"));
                 for i = 1:numel(direct)
@@ -179,7 +179,8 @@ classdef Group < handle
     methods (Access = private)
         function sliced = sliceConsolidated(obj, prefix)
             %SLICECONSOLIDATED Consolidated entries under prefix, re-keyed
-            %   relative to it (so child groups keep the fast path).
+            %   relative to it (so child groups keep the fast path). A group
+            %   with no children gets a map with no entries.
             sliced = containers.Map('KeyType', 'char', 'ValueType', 'any');
             paths = string(obj.meta.consolidated.keys())';
             pre = prefix + "/";
@@ -188,9 +189,6 @@ classdef Group < handle
                     sliced(char(extractAfter(paths(i), strlength(pre)))) = ...
                         obj.meta.consolidated(char(paths(i)));
                 end
-            end
-            if sliced.Count == 0
-                sliced = [];
             end
         end
 
