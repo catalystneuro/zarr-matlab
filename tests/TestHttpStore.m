@@ -5,6 +5,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
     properties
         root
         servedRoot
+        requestLog
         port
         proc
         python
@@ -53,8 +54,11 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 "print(server.server_address[1], flush=True); " + ...
                 "server.serve_forever()";
             portFile = fullfile(tc.root, "port");
-            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>/dev/null & echo $!', ...
-                tc.python, serverCode, tc.servedRoot, portFile);
+            % The handler logs each request line to stderr, which goes to
+            % requestLog, so a test can see exactly what reached the server.
+            tc.requestLog = fullfile(tc.root, "requests.log");
+            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>"%s" & echo $!', ...
+                tc.python, serverCode, tc.servedRoot, portFile, tc.requestLog);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
@@ -150,6 +154,11 @@ classdef TestHttpStore < matlab.unittest.TestCase
 
                 z = zarr.open(zarr.stores.ManifestStore(indexDir));
                 tc.verifyEqual(z(:), d, "URL: " + url);
+                % The server ignores the query, so check its request log: the
+                % path and query must arrive exactly as written.
+                requestTarget = extractAfter(url, "127.0.0.1:" + tc.port);
+                tc.verifySubstring(string(fileread(tc.requestLog)), ...
+                    "GET " + requestTarget + " HTTP", "URL: " + url);
             end
         end
 
