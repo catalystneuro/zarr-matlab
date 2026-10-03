@@ -183,12 +183,12 @@ if ~isstruct(value) || ~isscalar(value)
 end
 for k = 1:numel(info.fields)
     f = info.fields(k);
-    if ~isfield(value, f.Name)
+    if ~isfield(value, f.MatlabName)
         error("zarr:TypeMismatch", ...
-            "%s has no field '%s'. Give it one field per record field.", label, f.Name);
+            "%s has no field '%s'. Give it one field per record field.", label, f.MatlabName);
     end
     if f.Info.isStructured
-        checkStructuredFillValue(value.(f.Name), f.Info, label + "." + f.Name);
+        checkStructuredFillValue(value.(f.MatlabName), f.Info, label + "." + f.MatlabName);
     end
 end
 end
