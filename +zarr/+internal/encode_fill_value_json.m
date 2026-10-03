@@ -51,7 +51,7 @@ parts = strings(1, numel(info.fields));
 for k = 1:numel(info.fields)
     f = info.fields(k);
     parts(k) = string(jsonencode(char(f.Name))) + ":" + ...
-        zarr.internal.encode_fill_value_json(v.(f.Name), f.Info);
+        zarr.internal.encode_fill_value_json(v.(f.MatlabName), f.Info);
 end
 txt = "{" + strjoin(parts, ",") + "}";
 end

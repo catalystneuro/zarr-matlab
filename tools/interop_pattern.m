@@ -54,7 +54,7 @@ for k = 1:numel(info.fields)
     else
         values = cast(base, char(f.Info.matlabClass));
     end
-    args{2*k-1} = char(f.Name);
+    args{2*k-1} = char(f.MatlabName);
     args{2*k} = num2cell(values);
 end
 records = struct(args{:});

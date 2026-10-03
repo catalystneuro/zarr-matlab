@@ -105,9 +105,9 @@ if startsWith(fillText, "{")
         if isempty(idx)
             % Absent from the object: fall back to the field's own default,
             % as zarr-python does.
-            v.(f.Name) = zarr.internal.default_scalar_fill_value(f.Info);
+            v.(f.MatlabName) = zarr.internal.default_scalar_fill_value(f.Info);
         else
-            v.(f.Name) = zarr.internal.decode_fill_value(valueTexts(idx), f.Info);
+            v.(f.MatlabName) = zarr.internal.decode_fill_value(valueTexts(idx), f.Info);
         end
     end
     return

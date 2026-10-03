@@ -523,6 +523,27 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             [bytes, ~] = store.get("zarr.json");
             tc.verifySubstring(native2unicode(bytes, 'UTF-8'), '"x-y"');
         end
+
+        function canonicalNonIdentifierFieldNames(tc)
+            % FillValue and the decoded fill value use the MATLAB names, while
+            % the fill_value object in zarr.json keeps the names as written.
+            fields = struct('name', {'x-y'; 'x_y'}, 'data_type', {'int32'; 'int16'});
+            dtype = struct('name', "struct", 'configuration', struct('fields', fields));
+            store = zarr.stores.MemoryStore();
+            tc.verifyError(@() zarr.create(store, 3, dtype, FillValue=struct('x_y', int32(7))), ...
+                "zarr:TypeMismatch");
+            z = zarr.create(store, 3, dtype, FillValue=struct('x_y', int32(7), 'x_y_1', int16(-1)));
+            z.write(struct('x_y', {int32(1); int32(2)}, 'x_y_1', {int16(3); int16(4)}), 1);
+
+            back = zarr.open(store).read();
+            tc.verifyEqual([back.x_y], int32([1 2 7]));
+            tc.verifyEqual([back.x_y_1], int16([3 4 -1]));
+            [bytes, ~] = store.get("zarr.json");
+            meta = zarr.internal.json_decode_exact(native2unicode(bytes, 'UTF-8'));
+            fillValue = meta{"fill_value"};
+            tc.verifyEqual(fillValue{"x-y"}, 7);
+            tc.verifyEqual(fillValue{"x_y"}, -1);
+        end
     end
 
     properties (TestParameter)
