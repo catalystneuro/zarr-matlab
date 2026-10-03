@@ -123,5 +123,15 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative("/idx.zarr", "../../data.bin"), ...
                 "zarr:StoreError");
         end
+
+        function dotDotInBaseIsResolved(tc)
+            % A ".." inside the base names its parent, as it does in rel.
+            tc.verifyEqual(zarr.internal.resolve_relative("/a/b/../idx.zarr", "../../x"), "/x");
+            tc.verifyEqual(zarr.internal.resolve_relative( ...
+                "https://h.com/a/b/../idx", "../../x"), "https://h.com/x");
+            tc.verifyEqual(zarr.internal.resolve_relative("a/../idx.zarr", "../../x"), "../x");
+            tc.verifyError(@() zarr.internal.resolve_relative( ...
+                "https://h.com/a/../idx", "../../x"), "zarr:StoreError");
+        end
     end
 end
