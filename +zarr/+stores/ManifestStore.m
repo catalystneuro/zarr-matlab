@@ -155,7 +155,7 @@ classdef ManifestStore < zarr.stores.Store
             if startsWith(resolved, "http://") || startsWith(resolved, "https://")
                 % A manifest path is a URL, already percent-encoded and possibly
                 % carrying a query string, so it is requested exactly as written.
-                [data, found] = zarr.stores.HttpStore.readRange(resolved, base + offset, n);
+                [data, found] = zarr.internal.http_read_range(resolved, base + offset, n);
             else
                 fid = fopen(resolved, 'r');
                 found = fid ~= -1;
