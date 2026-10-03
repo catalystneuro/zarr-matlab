@@ -1,6 +1,6 @@
-function v = decode_fill_value(text, info)
+function v = decode_fill_value(fillText, info)
 %DECODE_FILL_VALUE fill_value JSON text -> MATLAB scalar.
-%   text is the fill_value's source text in zarr.json, as
+%   fillText is the fill_value's source text in zarr.json, as
 %   zarr.internal.json_object_entries returns it. Some values survive
 %   only there: jsondecode goes through double for integers, renames
 %   object keys that are not valid MATLAB identifiers, and the sign of a
@@ -8,12 +8,12 @@ function v = decode_fill_value(text, info)
 %   field of a structured fill value is decoded from its own text the
 %   same way.
 
-text = strtrim(string(text));
+fillText = strtrim(string(fillText));
 if info.isStructured
-    v = structuredFillValue(text, info);
+    v = structuredFillValue(fillText, info);
     return
 end
-raw = jsondecode(char(text));
+raw = jsondecode(char(fillText));
 cls = char(info.matlabClass);
 if info.zarrType == "string" || info.zarrType == "fixed_length_utf32"
     v = string(raw);
@@ -38,7 +38,7 @@ elseif info.zarrType == "bool"
     v = logical(raw);
 elseif startsWith(info.zarrType, "float")
     v = cast(scalarFloat(raw, info.itemsize, info), cls);
-    if isnumeric(raw) && isscalar(raw) && raw == 0 && startsWith(text, "-")
+    if isnumeric(raw) && isscalar(raw) && raw == 0 && startsWith(fillText, "-")
         % "-0", "-0.0" and "-0e0" all mean negative zero.
         v = -abs(v);
     end
@@ -46,12 +46,12 @@ else  % integers
     if isnumeric(raw)
         v = cast(raw, cls);
         if ismember(info.matlabClass, ["int64", "uint64"]) && isscalar(raw) && abs(raw) >= 2^53 ...
-                && ~isempty(regexp(text, '^-?\d+$', 'once'))
+                && ~isempty(regexp(fillText, '^-?\d+$', 'once'))
             % Values below 2^53 decode exactly, so only re-read the token
             % beyond that. Only pure integer literals parse exactly; other
             % numeric spellings (1e18, 9.1e15) keep the decoded value
             % rather than turning a readable file into a hard error.
-            v = zarr.internal.parse_int64_token(char(text), info.matlabClass == "int64");
+            v = zarr.internal.parse_int64_token(char(fillText), info.matlabClass == "int64");
         end
     else
         v = cast(sscanf(char(string(raw)), '%ld'), cls);
@@ -87,7 +87,7 @@ switch s
 end
 end
 
-function v = structuredFillValue(text, info)
+function v = structuredFillValue(fillText, info)
 %STRUCTUREDFILLVALUE Fill value of a structured dtype, from its JSON text.
 %   The canonical "struct" name writes the fill_value as an object of
 %   per-field fill values; the legacy "structured" name writes a string,
@@ -96,28 +96,28 @@ function v = structuredFillValue(text, info)
 %   yet known at metadata-parse time). zarr-python reads both under
 %   either name, so accept both here. See zarr.internal.dtype_info.
 
-if startsWith(text, "{")
-    [keys, values] = zarr.internal.json_object_entries(text);
+if startsWith(fillText, "{")
+    [names, valueTexts] = zarr.internal.json_object_entries(fillText);
     v = struct();
     for k = 1:numel(info.fields)
         f = info.fields(k);
-        idx = find(keys == f.Name, 1);
+        idx = find(names == f.Name, 1);
         if isempty(idx)
             % Absent from the object: fall back to the field's own default,
             % as zarr-python does.
             v.(f.Name) = zarr.internal.default_scalar_fill_value(f.Info);
         else
-            v.(f.Name) = zarr.internal.decode_fill_value(values(idx), f.Info);
+            v.(f.Name) = zarr.internal.decode_fill_value(valueTexts(idx), f.Info);
         end
     end
     return
 end
-if ~startsWith(text, """")
+if ~startsWith(fillText, """")
     error("zarr:InvalidFillValue", ...
         "The fill_value of a %s data type must be an object of field values " + ...
-        "or a base64 string, not %s.", info.zarrType, text);
+        "or a base64 string, not %s.", info.zarrType, fillText);
 end
-rawBytes = reshape(matlab.net.base64decode(jsondecode(char(text))), 1, []);
+rawBytes = reshape(matlab.net.base64decode(jsondecode(char(fillText))), 1, []);
 if numel(rawBytes) ~= info.itemsize
     error("zarr:InvalidFillValue", ...
         "The base64 fill_value of a %s data type holds %d bytes, but its " + ...

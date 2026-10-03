@@ -319,23 +319,23 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             fields = struct('name', {'big'; 'ubig'; 'neg'}, ...
                 'data_type', {'int64'; 'uint64'; 'float64'});
             dtype = struct('name', "struct", 'configuration', struct('fields', fields));
-            fill = struct('big', int64(-9007199254740993), ...
+            fillValue = struct('big', int64(-9007199254740993), ...
                 'ubig', uint64(18446744073709551611), 'neg', -0.0);
             store = zarr.stores.MemoryStore();
-            zarr.create(store, 2, dtype, FillValue=fill);
+            zarr.create(store, 2, dtype, FillValue=fillValue);
 
             back = zarr.open(store).meta.fillValue;
-            tc.verifyEqual(back.big, fill.big);
-            tc.verifyEqual(back.ubig, fill.ubig);
+            tc.verifyEqual(back.big, fillValue.big);
+            tc.verifyEqual(back.ubig, fillValue.ubig);
             tc.verifyEqual(typecast(back.neg, 'uint64'), typecast(-0.0, 'uint64'));
         end
 
         function malformedFillValueErrors(tc)
             % Neither an object nor a string, or a string of the wrong size.
             info = zarr.internal.dtype_info(tc.canonicalDtypeJson());
-            for text = ["[7, 1.5, ""x""]", "0", "null", """AAAA"""]
-                tc.verifyError(@() zarr.internal.decode_fill_value(text, info), ...
-                    "zarr:InvalidFillValue", text);
+            for fillText = ["[7, 1.5, ""x""]", "0", "null", """AAAA"""]
+                tc.verifyError(@() zarr.internal.decode_fill_value(fillText, info), ...
+                    "zarr:InvalidFillValue", fillText);
             end
         end
 
@@ -405,11 +405,11 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
 
             pointType = struct('name', "struct", 'configuration', struct( ...
                 'fields', struct('name', {'p'}, 'data_type', {'int16'})));
-            nested = struct('name', "struct", 'configuration', struct( ...
+            nestedType = struct('name', "struct", 'configuration', struct( ...
                 'fields', struct('name', {'pt'}, 'data_type', {pointType})));
-            tc.verifyError(@() zarr.create(store, 2, nested, FillValue=struct('pt', struct())), ...
+            tc.verifyError(@() zarr.create(store, 2, nestedType, FillValue=struct('pt', struct())), ...
                 "zarr:TypeMismatch");
-            z = zarr.create(store, 2, nested, FillValue=struct('pt', struct('p', int16(5))));
+            z = zarr.create(store, 2, nestedType, FillValue=struct('pt', struct('p', int16(5))));
             tc.verifyEqual(z.meta.fillValue.pt.p, int16(5));
         end
 
