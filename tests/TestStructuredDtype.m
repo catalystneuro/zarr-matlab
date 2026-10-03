@@ -380,6 +380,17 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyEqual(z.meta.fillValue.pt.p, int16(5));
         end
 
+        function createRejectsMalformedDtype(tc)
+            % dtype is one name or one struct, through zarr.create or a group.
+            store = zarr.stores.MemoryStore();
+            dtype = tc.canonicalDtypeJson();
+            tc.verifyError(@() zarr.create(store, 2, [dtype; dtype]), "zarr:UnsupportedDataType");
+            tc.verifyError(@() zarr.create(store, 2, ["int32", "int8"]), "zarr:UnsupportedDataType");
+            tc.verifyError(@() zarr.create(store, 2, 42), "zarr:UnsupportedDataType");
+            g = zarr.create_group(store);
+            tc.verifyError(@() g.createArray("x", 2, [dtype; dtype]), "zarr:UnsupportedDataType");
+        end
+
         function createRejectsConfiguredDtypeNamedWithoutConfig(tc)
             import matlab.unittest.fixtures.TemporaryFolderFixture
             tempFixture = tc.applyFixture(TemporaryFolderFixture);
