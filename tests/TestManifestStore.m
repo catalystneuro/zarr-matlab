@@ -160,5 +160,38 @@ classdef TestManifestStore < matlab.unittest.TestCase
                 tc.verifyEqual(zarr.internal.resolve_relative("idx.zarr", rel), rel, rel);
             end
         end
+
+        function relativeRootSurvivesFolderChange(tc)
+            % A relative index location is resolved when the store is created,
+            % so reading after a change of folder still finds the chunks.
+            import matlab.unittest.fixtures.CurrentFolderFixture
+            import matlab.unittest.fixtures.TemporaryFolderFixture
+            project = tc.applyFixture(TemporaryFolderFixture()).Folder;
+            indexDir = fullfile(project, "virtual", "idx.zarr");
+            mkdir(fullfile(project, "raw"));
+            mkdir(indexDir);
+            src = zarr.stores.MemoryStore();
+            zarr.create(src, 3, "int32", ChunkShape=3).write(int32([10 20 30]));
+            [chunk, ~] = src.get("c/0");
+            [meta, ~] = src.get("zarr.json");
+            writeBytes(fullfile(project, "raw", "data.bin"), chunk);
+            writeBytes(fullfile(indexDir, "zarr.json"), meta);
+            writeBytes(fullfile(indexDir, "manifest.json"), uint8(sprintf( ...
+                '{"chunks":{"c/0":{"path":"../../raw/data.bin","offset":0,"length":%d}}}', numel(chunk))));
+
+            tc.applyFixture(CurrentFolderFixture(fullfile(project, "virtual")));
+            store = zarr.stores.ManifestStore("idx.zarr");
+            tc.applyFixture(CurrentFolderFixture(project));
+            tc.verifyTrue(isfolder(store.root), "root is absolute: " + store.root);
+            z = zarr.open(store);
+            tc.verifyEqual(z(:), int32([10; 20; 30]));
+        end
     end
+end
+
+function writeBytes(filePath, bytes)
+%WRITEBYTES Write bytes to a file, replacing any earlier content.
+fid = fopen(filePath, "w");
+fwrite(fid, bytes);
+fclose(fid);
 end
