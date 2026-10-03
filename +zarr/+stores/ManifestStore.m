@@ -15,7 +15,11 @@ classdef ManifestStore < zarr.stores.Store
     %       "a/c/0/1": {"inline": "<base64>"}
     %     }
     %   }
-    %   Paths are relative to the index root (absolute paths/URLs allowed).
+    %   A path is a file path relative to the index root, written without
+    %   URL encoding even when the index is served over HTTP(S). An absolute
+    %   filesystem path or an http(s) URL is accepted too. A URL is
+    %   requested exactly as written, so it must be percent-encoded, and it
+    %   may carry a query string, as a presigned S3 URL does.
 
     properties (SetAccess = immutable)
         root (1,1) string
