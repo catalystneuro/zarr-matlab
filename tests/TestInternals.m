@@ -124,5 +124,16 @@ classdef TestInternals < matlab.unittest.TestCase
             tc.verifyEqual(zarr.internal.gzip_java('decompress', [a, padding]), uint8(1:50));
             tc.verifyEqual(zarr.internal.gzip_java('decompress', [a, padding, b]), uint8(1:90));
         end
+
+        function gzipMalformedHeaderIsCodecError(tc)
+            % Header fields that run past the end of the stream are codec errors.
+            member = zarr.internal.gzip_java('compress', uint8(1:50), 5);
+            fnameFlag = uint8(8);
+            extraAndFnameFlags = uint8(12);
+            noTerminator = [member(1:3), fnameFlag, member(5:10), uint8(repmat('a', 1, 30))];
+            longExtra = [member(1:3), extraAndFnameFlags, member(5:10), uint8([96 234]), uint8(1:10)];
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', noTerminator), "zarr:CodecError");
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', longExtra), "zarr:CodecError");
+        end
     end
 end

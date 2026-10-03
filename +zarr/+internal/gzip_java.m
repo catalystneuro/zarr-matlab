@@ -78,13 +78,16 @@ if bitand(flg, 4)  % FEXTRA
     pos = pos + 2 + xlen;
 end
 if bitand(flg, 8)  % FNAME: zero-terminated
-    pos = find(bytes(pos:end) == 0, 1) + pos;
+    pos = afterTerminator(bytes, pos);
 end
-if bitand(flg, 16)  % FCOMMENT
-    pos = find(bytes(pos:end) == 0, 1) + pos;
+if bitand(flg, 16)  % FCOMMENT: zero-terminated
+    pos = afterTerminator(bytes, pos);
 end
 if bitand(flg, 2)  % FHCRC
     pos = pos + 2;
+end
+if pos > n
+    error("zarr:CodecError", "Invalid gzip stream: the header runs past the end.");
 end
 
 % The inflater stops at the end of this member's deflate data and ignores
@@ -129,4 +132,14 @@ if uint32(crcObj.getValue()) ~= expectedCrc
     error("zarr:CodecError", "Gzip CRC mismatch: corrupt data.");
 end
 next = trailer + 8;
+end
+
+function next = afterTerminator(bytes, pos)
+%AFTERTERMINATOR Index just past the zero byte that ends a header field.
+%   The field starts at bytes(pos); a missing terminator is a codec error.
+terminator = find(bytes(pos:end) == 0, 1);
+if isempty(terminator)
+    error("zarr:CodecError", "Invalid gzip stream: a header field has no terminating zero.");
+end
+next = pos + terminator;
 end
