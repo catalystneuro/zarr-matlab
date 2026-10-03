@@ -26,7 +26,7 @@ run tools/run_tests.m
 This runs `tests/` with `matlab.unittest`, including `TestPythonInterop`,
 which drives a three-step round trip (zarr-python writes → MATLAB verifies &
 writes → zarr-python verifies). It uses `.venv/bin/python` or
-`$ZARR_MATLAB_PYTHON`, and skips cleanly if neither has zarr ≥ 3.
+`$ZARR_MATLAB_PYTHON`, and skips cleanly if neither has zarr ≥ 3.4.
 
 ## Design ground rules
 
