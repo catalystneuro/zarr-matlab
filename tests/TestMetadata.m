@@ -183,6 +183,29 @@ classdef TestMetadata < matlab.unittest.TestCase
             tc.verifyTrue(all(ismissing(meta.dimensionNames)));
         end
 
+        function rejectsDimensionNamesOfWrongLength(tc)
+            % dimension_names must have one entry per dimension of shape.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2,3],' ...
+                '"data_type":"int8",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2,3]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":0,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}],' ...
+                '"dimension_names":%s}'];
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x"]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x","y","z"]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '[null,null,null]')), "zarr:InvalidMetadata");
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '["x","y"]'));
+            tc.verifyEqual(meta.dimensionNames, ["x" "y"]);
+            % An empty list reads as "no names": jsondecode returns the same
+            % value for [] and null, so the two cannot be told apart.
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '[]'));
+            tc.verifyEmpty(meta.dimensionNames);
+        end
+
         function singletonShapeStaysList(tc)
             % the classic jsonencode trap: [5] must not serialize as 5
             meta = zarr.metadata.ArrayMetadata();

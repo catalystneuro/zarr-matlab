@@ -100,6 +100,11 @@ classdef ArrayMetadata
                             "dimension_names entry %d must be a string or null.", i);
                     end
                 end
+                if numel(dn) ~= numel(obj.shape)
+                    error("zarr:InvalidMetadata", ...
+                        "dimension_names must have one entry per dimension: " + ...
+                        "expected %d, found %d.", numel(obj.shape), numel(dn));
+                end
                 obj.dimensionNames = dn;
             end
         end
