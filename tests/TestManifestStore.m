@@ -141,5 +141,16 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative("C:/data/idx.zarr", "../../../x"), ...
                 "zarr:StoreError");
         end
+
+        function uncShareIsTheRootOfAPath(tc)
+            % A UNC path keeps its leading "//", and ".." cannot climb above
+            % the share.
+            tc.verifyEqual(zarr.internal.resolve_relative("\\server\share\idx.zarr", "data.bin"), ...
+                "//server/share/idx.zarr/data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("//server/share/a/idx.zarr", "../../x"), ...
+                "//server/share/x");
+            tc.verifyError(@() zarr.internal.resolve_relative("\\server\share\idx.zarr", "../../x"), ...
+                "zarr:StoreError");
+        end
     end
 end

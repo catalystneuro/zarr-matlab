@@ -62,11 +62,16 @@ end
 
 function [root, rest] = splitRoot(p)
 %SPLITROOT Split a filesystem path into its root and the rest.
-%   p uses "/" as the separator. root is the drive with its slash ("C:/")
-%   for a Windows path, "/" for a POSIX path, and "" for a relative path,
-%   whose rest is then all of p. A ".." cannot climb above the root.
+%   p uses "/" as the separator. root is the share ("//server/share/") for
+%   a UNC path, the drive with its slash ("C:/") for a Windows path, "/"
+%   for a POSIX path, and "" for a relative path, whose rest is then all of
+%   p. A ".." cannot climb above the root.
+unc = regexp(char(p), '^//[^/]+/[^/]+', 'match', 'once');
 drive = regexp(char(p), '^[A-Za-z]:/?', 'match', 'once');
-if ~isempty(drive)
+if ~isempty(unc)
+    root = string(unc) + "/";
+    rest = extractAfter(p, strlength(unc));
+elseif ~isempty(drive)
     root = string(drive);
     rest = extractAfter(p, strlength(root));
 elseif startsWith(p, "/")
