@@ -35,28 +35,41 @@ classdef TestHttpStore < matlab.unittest.TestCase
             zs.write(reshape(int32(1:64), [8 8]));
             zarr.consolidate_metadata(ls);
 
+            % Serve with socketserver rather than `python -m http.server`:
+            % HTTPServer.server_bind calls socket.getfqdn on the bind address
+            % before it starts listening, and that reverse lookup can take tens
+            % of seconds on hosts with slow name resolution (GitHub's macOS
+            % runners among them).
+            serverCode = "import functools, http.server, socketserver, sys; " + ...
+                "handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[2]); " + ...
+                "socketserver.ThreadingTCPServer(('127.0.0.1', int(sys.argv[1])), handler).serve_forever()";
             tc.port = 8000 + randi(1000);
-            cmd = sprintf('"%s" -m http.server %d --bind 127.0.0.1 --directory "%s" >/dev/null 2>&1 & echo $!', ...
-                tc.python, tc.port, tc.root);
+            cmd = sprintf('"%s" -c "%s" %d "%s" >/dev/null 2>&1 & echo $!', ...
+                tc.python, serverCode, tc.port, tc.root);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
-            % Some CI environments (e.g. macOS runners) firewall even loopback
-            % listeners; probe with curl and skip rather than time out.
+            % Probe with webread, the client HttpStore uses. Programs started
+            % with system() inherit MATLAB's library path on Linux, which makes
+            % the system curl load MATLAB's bundled libcurl and fail to start.
+            probeOptions = weboptions(Timeout=1, ContentType="binary");
+            probeUrl = sprintf("http://127.0.0.1:%d/zarr.json", tc.port);
             reachable = false;
+            probeMessage = "";
             for attempt = 1:20
-                status = system(sprintf( ...
-                    'curl -s -o /dev/null --max-time 1 http://127.0.0.1:%d/zarr.json', tc.port));
-                if status == 0
+                try
+                    webread(probeUrl, probeOptions);
                     reachable = true;
                     break
+                catch err
+                    probeMessage = string(err.message);
                 end
                 pause(0.25);
             end
             if ~reachable
                 tc.stopServer();
             end
-            tc.assumeTrue(reachable, 'local HTTP server not reachable in this environment');
+            tc.assumeTrue(reachable, "Local HTTP server not reachable: " + probeMessage);
         end
     end
 
