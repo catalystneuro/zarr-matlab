@@ -79,6 +79,155 @@ classdef TestArray < matlab.unittest.TestCase
             tc.verifyError(@assignOOB, "zarr:Indexing");
         end
 
+        function colonReadsZeroLengthVector(tc)
+            z = zarr.create(tc.store, 0, "single");
+            tc.verifyEqual(size(z), [0 1]);
+            tc.verifyEqual(z(:), zeros(0, 1, "single"));
+        end
+
+        function subscriptsReadZeroLengthDimension(tc)
+            z = zarr.create(tc.store, [4 0], "float64");
+            tc.verifyEqual(z(:, :), zeros(4, 0));
+            tc.verifyEqual(z(:), zeros(0, 1));
+        end
+
+        function rankZeroReadsWithColonOrOne(tc)
+            z = zarr.create(tc.store, [], "float64");
+            z.write(42);
+            tc.verifyEqual(size(z), [1 1]);
+            tc.verifyEqual(z(:), 42);
+            tc.verifyEqual(z(1), 42);
+            tc.verifyEqual(z(end), 42);
+        end
+
+        function rankOneReadsWithTrailingSubscript(tc)
+            z = zarr.create(tc.store, 10, "float64", ChunkShape=4);
+            d = (1:10)';
+            z.write(d);
+            tc.verifyEqual(size(z), [10 1]);
+            tc.verifyEqual(z(1:3, 1), d(1:3, 1));
+            tc.verifyEqual(z(:, 1), d(:, 1));
+            tc.verifyEqual(z([2 9], end), d([2 9], end));
+        end
+
+        function emptySelectionMatchesInMemoryArray(tc)
+            vector = zarr.create(tc.store, 10, "int16", ChunkShape=4, Path="vector");
+            verifyMatchesInMemory(tc, vector, {{[]}, {zeros(1, 0)}, {zeros(0, 1)}, {zeros(0, 3)}, ...
+                {3:2}, {false}, {false(10, 1)}, {false(1, 10)}, {false(2, 2)}, {false(0, 0)}, ...
+                {[], 1}, {':', []}, {1:3, []}, {[], []}});
+
+            zeroLength = zarr.create(tc.store, 0, "single", Path="zeroLength");
+            verifyMatchesInMemory(tc, zeroLength, {{':'}, {[]}, {zeros(1, 0)}, {1:0}, ...
+                {':', 1}, {':', ':'}, {[], 1}});
+
+            oneElement = zarr.create(tc.store, 1, "float64", Path="oneElement");
+            verifyMatchesInMemory(tc, oneElement, {{[]}, {zeros(1, 0)}, {zeros(0, 1)}, {false}});
+
+            rankZero = zarr.create(tc.store, [], "float64", Path="rankZero");
+            verifyMatchesInMemory(tc, rankZero, {{[]}, {zeros(1, 0)}, {zeros(0, 1)}, {false}, ...
+                {[], 1}, {1, []}});
+
+            zeroColumns = zarr.create(tc.store, [4 0], "float64", Path="zeroColumns");
+            verifyMatchesInMemory(tc, zeroColumns, {{':', ':'}, {[], ':'}, {2:3, ':'}, {2:3, []}, ...
+                {':', ':', 1}, {':', ':', []}});
+
+            matrix = zarr.create(tc.store, [4 5], "uint8", ChunkShape=[2 2], Path="matrix");
+            verifyMatchesInMemory(tc, matrix, {{[], ':'}, {2:3, []}, {[], []}, ...
+                {false(1, 4), ':'}, {1:2, 1:3, []}});
+        end
+
+        function trailingSubscriptsMatchInMemoryArray(tc)
+            rankZero = zarr.create(tc.store, [], "float64", Path="rankZero");
+            rankZero.write(42);
+            verifyMatchesInMemory(tc, rankZero, {{1, 1}, {':', ':'}, {1, 1, 1}, {true}, {1, [1 1]}});
+
+            vector = zarr.create(tc.store, 10, "int16", ChunkShape=4, Path="vector");
+            vector.write(int16(1:10)');
+            verifyMatchesInMemory(tc, vector, {{1:3, ':'}, {1:3, 1, 1}, {[9 2], true}, {1:3, [1 1]}});
+
+            matrix = zarr.create(tc.store, [4 5], "uint8", ChunkShape=[2 2], Path="matrix");
+            matrix.write(reshape(uint8(1:20), [4 5]));
+            verifyMatchesInMemory(tc, matrix, {{':', ':', 1}, {1:2, 1:3, ':'}, {1:2, 1:3, 1, 1}, ...
+                {[1 4], [2 5], [1 1]}});
+        end
+
+        function assignmentAcceptsSubscriptsOfMatlabSize(tc)
+            rankZero = zarr.create(tc.store, [], "float64", Path="rankZero");
+            rankZero(:) = 9;
+            tc.verifyEqual(rankZero.read(), 9);
+            rankZero(1) = 7;
+            tc.verifyEqual(rankZero.read(), 7);
+            rankZero(1, 1) = 5;
+            tc.verifyEqual(rankZero.read(), 5);
+
+            vector = zarr.create(tc.store, 10, "float64", ChunkShape=4, Path="vector");
+            d = zeros(10, 1);
+            vector(1:3, 1) = [7; 8; 9];
+            d(1:3, 1) = [7; 8; 9];
+            vector([5 10], 1) = [1; 2];
+            d([5 10], 1) = [1; 2];
+            tc.verifyEqual(vector.read(), d);
+            vector(:, 1) = 4;
+            tc.verifyEqual(vector.read(), 4 * ones(10, 1));
+
+            matrix = zarr.create(tc.store, [4 5], "float64", ChunkShape=[2 2], Path="matrix");
+            m = reshape(1:20, [4 5]);
+            matrix(:, :, 1) = m;
+            matrix([1 4], [2 5], 1) = [100 101; 102 103];
+            m([1 4], [2 5], 1) = [100 101; 102 103];
+            tc.verifyEqual(matrix.read(), m);
+        end
+
+        function emptySelectionAssignmentWritesNothing(tc)
+            vector = zarr.create(tc.store, 10, "float64", ChunkShape=4, Path="vector");
+            d = (1:10)';
+            vector.write(d);
+            vector([]) = 5;
+            vector(zeros(1, 0)) = zeros(1, 0);
+            vector(false(10, 1)) = 5;
+            vector(1:3, []) = 5;
+            tc.verifyEqual(vector.read(), d);
+            tc.verifyError(@() assignElements(vector, {[]}, [1 2]), "zarr:ShapeMismatch");
+
+            zeroLength = zarr.create(tc.store, 0, "single", Path="zeroLength");
+            zeroLength(:) = 5;
+            zeroLength(:) = zeros(0, 1, "single");
+            tc.verifyEqual(zeroLength.read(), zeros(0, 1, "single"));
+
+            zeroColumns = zarr.create(tc.store, [4 0], "float64", Path="zeroColumns");
+            zeroColumns(:, :) = 5;
+            zeroColumns(:, :) = zeros(4, 0);
+            tc.verifyEqual(zeroColumns.read(), zeros(4, 0));
+            tc.verifyError(@() assignElements(zeroColumns, {':', ':'}, ones(4, 1)), ...
+                "zarr:ShapeMismatch");
+        end
+
+        function invalidSubscriptsError(tc)
+            rankZero = zarr.create(tc.store, [], "float64", Path="rankZero");
+            tc.verifyError(@() rankZero(2), "zarr:Indexing");
+            tc.verifyError(@() rankZero(1, 2), "zarr:Indexing");
+            tc.verifyError(@() assignElements(rankZero, {2}, 1), "zarr:Indexing");
+
+            vector = zarr.create(tc.store, 10, "float64", Path="vector");
+            tc.verifyError(@() vector(11), "zarr:Indexing");
+            tc.verifyError(@() vector(0), "zarr:Indexing");
+            tc.verifyError(@() vector(1:3, 2), "zarr:Indexing");
+            tc.verifyError(@() vector(1:3, [false true]), "zarr:Indexing");
+            tc.verifyError(@() assignElements(vector, {1:3, 2}, 1), "zarr:Indexing");
+
+            matrix = zarr.create(tc.store, [4 5], "float64", Path="matrix");
+            % A single subscript other than : is linear indexing for rank >= 2.
+            tc.verifyError(@() matrix(3), "zarr:Indexing");
+            tc.verifyError(@() matrix([]), "zarr:Indexing");
+            tc.verifyError(@() assignElements(matrix, {3}, 1), "zarr:Indexing");
+            tc.verifyError(@() matrix(5, 1), "zarr:Indexing");
+            tc.verifyError(@() matrix(logical([0 0 0 0 1]), 1), "zarr:Indexing");
+            tc.verifyError(@() matrix(:, :, 2), "zarr:Indexing");
+
+            rankThree = zarr.create(tc.store, [2 3 4], "float64", Path="rankThree");
+            tc.verifyError(@() rankThree(1, 2), "zarr:Indexing");
+        end
+
         function dtypePreserved(tc)
             for dt = ["int16", "uint64", "float32", "complex128", "bool", ...
                       "float16", "datetime64[ns]", "timedelta64[us]"]
@@ -241,4 +390,18 @@ end
 
 function rmdirIf(p)
 if isfolder(p), rmdir(p, 's'); end
+end
+
+function verifyMatchesInMemory(tc, z, subscriptSets)
+%VERIFYMATCHESINMEMORY Each set of subscripts reads from z what it reads from z.read().
+inMemory = z.read();
+for k = 1:numel(subscriptSets)
+    subscripts = subscriptSets{k};
+    label = "subscripts: " + strjoin(string(cellfun(@mat2str, subscripts, 'UniformOutput', false)), ", ");
+    tc.verifyEqual(z(subscripts{:}), inMemory(subscripts{:}), label);
+end
+end
+
+function assignElements(z, subscripts, value)
+z(subscripts{:}) = value;  %#ok<NASGU> z is a handle: the assignment writes to its store
 end
