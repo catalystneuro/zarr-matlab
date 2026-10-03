@@ -350,6 +350,22 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyEqual(string(meta.fill_value.label), "");
         end
 
+        function createFixedUtf32ArrayEndToEnd(tc)
+            % The data_type struct form also creates a top-level
+            % fixed_length_utf32 array; its unwritten element reads as "".
+            store = zarr.stores.MemoryStore();
+            dtype = struct('name', "fixed_length_utf32", 'configuration', struct('length_bytes', 16));
+            z = zarr.create(store, 3, dtype, ChunkShape=2);
+            z.write(["ab"; "cd"], 1);
+
+            back = zarr.open(store).read();
+            tc.verifyEqual(back, ["ab"; "cd"; ""]);
+            [bytes, ~] = store.get("zarr.json");
+            meta = jsondecode(native2unicode(bytes, 'UTF-8'));
+            tc.verifyEqual(string(meta.data_type.name), "fixed_length_utf32");
+            tc.verifyEqual(meta.data_type.configuration.length_bytes, 16);
+        end
+
         function createRejectsNonStructRecordData(tc)
             import matlab.unittest.fixtures.TemporaryFolderFixture
             tempFixture = tc.applyFixture(TemporaryFolderFixture);
