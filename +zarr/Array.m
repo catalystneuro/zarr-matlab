@@ -27,7 +27,11 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
     end
 
     properties (Access = private)
-        pipeline
+        % pipelineCache - Codec pipeline, built when the array is opened.
+        % An array whose chain holds a codec zarr-matlab does not implement
+        % opens without one, and codecPipeline raises zarr:UnsupportedCodec
+        % when its data is read or written.
+        pipelineCache = []
         info
     end
 
@@ -37,8 +41,9 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             obj.path = zarr.internal.normalize_path(path);
             obj.meta = meta;
             obj.info = zarr.internal.dtype_info(meta.dataType, meta.dataTypeConfig);
-            obj.pipeline = zarr.codecs.Pipeline(meta.codecs, obj.info, ...
-                meta.chunkShape, meta.fillValue);
+            if isempty(zarr.internal.find_unsupported_codec(meta.codecs))
+                obj.pipelineCache = obj.codecPipeline();
+            end
         end
 
         % ------------------------------------------------------------------
@@ -68,7 +73,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             out = zarr.internal.fill_array(obj.meta.fillValue, ...
                 zarr.internal.mshape(count), obj.info);
             parts = zarr.internal.chunk_intersections(start - 1, count, obj.meta.chunkShape);
-            sh = obj.pipeline.soleSharding();
+            sh = obj.codecPipeline().soleSharding();
             for t = 1:numel(parts)
                 p = parts(t);
                 key = obj.chunkStoreKey(p.coords);
@@ -80,7 +85,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 if ~found
                     continue  % output is pre-filled with fill value
                 end
-                chunk = obj.pipeline.decode(bytes);
+                chunk = obj.codecPipeline().decode(bytes);
                 src = subsFor(p.inStart, p.inCount);
                 dst = subsFor(p.outStart, p.inCount);
                 out(dst{:}) = chunk(src{:});
@@ -129,7 +134,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 else
                     [bytes, found] = obj.store.get(key);
                     if found
-                        chunk = obj.pipeline.decode(bytes);
+                        chunk = obj.codecPipeline().decode(bytes);
                     else
                         chunk = zarr.internal.fill_array(obj.meta.fillValue, ...
                             zarr.internal.mshape(cs), obj.info);
@@ -141,7 +146,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                         zarr.internal.fill_array(obj.meta.fillValue, size(chunk), obj.info))
                     obj.store.erase(key);
                 else
-                    obj.store.set(key, obj.pipeline.encode(chunk));
+                    obj.store.set(key, obj.codecPipeline().encode(chunk));
                 end
             end
         end
@@ -248,7 +253,10 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             codecNames = cellfun(@(c) string(c.name), obj.meta.codecs);
             fprintf('  zarr.Array  %s  %s\n', shapeStr, obj.meta.dataType);
             fprintf('     path: /%s   store: %s\n', obj.path, class(obj.store));
-            sh = obj.pipeline.soleSharding();
+            sh = [];
+            if ~isempty(obj.pipelineCache)
+                sh = obj.pipelineCache.soleSharding();
+            end
             if ~isempty(sh)
                 fprintf('    shard: [%s]   chunk: [%s]\n', ...
                     strjoin(string(obj.meta.chunkShape), " "), ...
@@ -358,6 +366,15 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
 
     % ----------------------------------------------------------------------
     methods (Access = private)
+        function p = codecPipeline(obj)
+            %CODECPIPELINE The array's codec pipeline, built on first use.
+            if isempty(obj.pipelineCache)
+                obj.pipelineCache = zarr.codecs.Pipeline(obj.meta.codecs, obj.info, ...
+                    obj.meta.chunkShape, obj.meta.fillValue);
+            end
+            p = obj.pipelineCache;
+        end
+
         function key = metaStoreKey(obj)
             if strlength(obj.path) == 0
                 key = "zarr.json";
@@ -477,14 +494,14 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
         function out = readScalar(obj)
             [bytes, found] = obj.store.get(obj.chunkStoreKey([]));
             if found
-                out = obj.pipeline.decode(bytes);
+                out = obj.codecPipeline().decode(bytes);
             else
                 out = obj.meta.fillValue;
             end
         end
 
         function writeScalar(obj, data)
-            obj.store.set(obj.chunkStoreKey([]), obj.pipeline.encode(obj.coerce(data)));
+            obj.store.set(obj.chunkStoreKey([]), obj.codecPipeline().encode(obj.coerce(data)));
         end
 
         function data = coerce(obj, data)
