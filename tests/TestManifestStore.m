@@ -152,5 +152,13 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative("\\server\share\idx.zarr", "../../x"), ...
                 "zarr:StoreError");
         end
+
+        function absoluteRelIsReturnedAsIs(tc)
+            % rel is absolute by the same rule as the base, in either
+            % separator.
+            for rel = ["/abs/x.bin", "\abs\x.bin", "C:\abs\x.bin", "C:/abs/x.bin", "\\server\share\x.bin"]
+                tc.verifyEqual(zarr.internal.resolve_relative("idx.zarr", rel), rel, rel);
+            end
+        end
     end
 end

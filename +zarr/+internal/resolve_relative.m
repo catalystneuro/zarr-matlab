@@ -11,7 +11,7 @@ if startsWith(rel, "http://") || startsWith(rel, "https://")
 end
 
 isHttp = startsWith(base, "http://") || startsWith(base, "https://");
-if ~isHttp && (startsWith(rel, "/") || ~isempty(regexp(rel, '^[A-Za-z]:[\\/]', 'once')))
+if ~isHttp && strlength(splitRoot(strrep(rel, "\", "/"))) > 0
     full = rel;  % absolute filesystem path
     return
 end
