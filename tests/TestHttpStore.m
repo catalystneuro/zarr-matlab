@@ -143,7 +143,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
 
             fileUrl = sprintf("http://127.0.0.1:%d/a%%20b.bin", tc.port);
             for url = [fileUrl, fileUrl + "?sig=x/y%2Fz"]
-                indexDir = tc.applyFixture(matlab.unittest.fixtures.TemporaryFolderFixture).Folder;
+                indexDir = tc.applyFixture(matlab.unittest.fixtures.TemporaryFolderFixture()).Folder;
                 fid = fopen(fullfile(indexDir, "zarr.json"), 'w');
                 fwrite(fid, meta);
                 fclose(fid);
