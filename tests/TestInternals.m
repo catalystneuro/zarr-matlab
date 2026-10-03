@@ -107,5 +107,13 @@ classdef TestInternals < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.gzip_java('decompress', bad), "zarr:CodecError");
             tc.verifyError(@() zarr.internal.gzip_java('decompress', [good, bad]), "zarr:CodecError");
         end
+
+        function gzipMembersLargerThanASlice(tc)
+            % Stored (level 0) members span several of the inflater's slices.
+            payload = uint8(mod(0:149999, 251));
+            member = zarr.internal.gzip_java('compress', payload, 0);
+            tc.verifyEqual(zarr.internal.gzip_java('decompress', [member, member, member]), ...
+                [payload, payload, payload]);
+        end
     end
 end

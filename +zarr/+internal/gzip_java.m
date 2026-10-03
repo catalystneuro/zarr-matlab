@@ -58,6 +58,7 @@ end
 function [out, next] = decompressMember(bytes, pos)
 %DECOMPRESSMEMBER Decompress the gzip member that starts at bytes(pos).
 %   next is the index of the first byte after the member's 8-byte trailer.
+sliceBytes = 65536;  % input handed to the inflater per write
 n = numel(bytes);
 if n - pos + 1 < 18 || bytes(pos) ~= 31 || bytes(pos + 1) ~= 139 || bytes(pos + 2) ~= 8
     error("zarr:CodecError", "Invalid gzip stream.");
@@ -84,8 +85,14 @@ inflater = java.util.zip.Inflater(true);
 baos = java.io.ByteArrayOutputStream();
 ios = java.util.zip.InflaterOutputStream(baos, inflater);
 try
-    if pos <= n
-        ios.write(typecast(bytes(pos:n), 'int8'));
+    % Hand the inflater one slice at a time and stop once this member's
+    % deflate data ends, so each member converts only its own bytes rather
+    % than the whole rest of the stream.
+    sliceStart = pos;
+    while sliceStart <= n && ~inflater.finished()
+        sliceEnd = min(sliceStart + sliceBytes - 1, n);
+        ios.write(typecast(bytes(sliceStart:sliceEnd), 'int8'));
+        sliceStart = sliceEnd + 1;
     end
     ios.close();
 catch err
