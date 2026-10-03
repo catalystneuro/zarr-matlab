@@ -343,7 +343,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             % The public creation path: a data_type struct passed to
             % zarr.create, written and read back through zarr.open.
             import matlab.unittest.fixtures.TemporaryFolderFixture
-            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            tempFixture = tc.applyFixture(TemporaryFolderFixture());
             storePath = fullfile(tempFixture.Folder, "created.zarr");
 
             fields = struct('name', {'id'; 'label'}, 'data_type', ...
@@ -385,7 +385,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
 
         function createRejectsNonStructRecordData(tc)
             import matlab.unittest.fixtures.TemporaryFolderFixture
-            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            tempFixture = tc.applyFixture(TemporaryFolderFixture());
             storePath = fullfile(tempFixture.Folder, "rejects.zarr");
             fields = struct('name', {'id'}, 'data_type', {'int32'});
             dtype = struct('name', "struct", 'configuration', struct('fields', fields));
@@ -426,7 +426,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
 
         function createRejectsConfiguredDtypeNamedWithoutConfig(tc)
             import matlab.unittest.fixtures.TemporaryFolderFixture
-            tempFixture = tc.applyFixture(TemporaryFolderFixture);
+            tempFixture = tc.applyFixture(TemporaryFolderFixture());
             storePath = fullfile(tempFixture.Folder, "noconfig.zarr");
             tc.verifyError(@() zarr.create(storePath, 2, "struct"), ...
                 "zarr:InvalidMetadata");
