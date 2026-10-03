@@ -115,5 +115,14 @@ classdef TestInternals < matlab.unittest.TestCase
             tc.verifyEqual(zarr.internal.gzip_java('decompress', [member, member, member]), ...
                 [payload, payload, payload]);
         end
+
+        function gzipSkipsZeroPadding(tc)
+            % Zero bytes after a member, at the end or between members, are padding.
+            a = zarr.internal.gzip_java('compress', uint8(1:50), 5);
+            b = zarr.internal.gzip_java('compress', uint8(51:90), 5);
+            padding = zeros(1, 16, 'uint8');
+            tc.verifyEqual(zarr.internal.gzip_java('decompress', [a, padding]), uint8(1:50));
+            tc.verifyEqual(zarr.internal.gzip_java('decompress', [a, padding, b]), uint8(1:90));
+        end
     end
 end

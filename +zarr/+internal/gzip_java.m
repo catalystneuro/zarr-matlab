@@ -48,6 +48,14 @@ pos = 1;  % first byte of the current member (1-based)
 while pos <= n
     [part, pos] = decompressMember(bytes, pos);
     parts{end + 1} = part; %#ok<AGROW>
+    % Zero bytes may pad a stream after a member; gzip readers, Python's
+    % among them, skip them.
+    nonZero = find(bytes(pos:end) ~= 0, 1);
+    if isempty(nonZero)
+        pos = n + 1;
+    else
+        pos = pos + nonZero - 1;
+    end
 end
 if isempty(parts)
     error("zarr:CodecError", "Invalid gzip stream.");
