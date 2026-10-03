@@ -85,12 +85,25 @@ classdef ArrayMetadata
             if isfield(m, 'dimension_names') && ~isempty(m.dimension_names)
                 names = zarr.metadata.ArrayMetadata.asList(m.dimension_names);
                 dn = strings(1, numel(names));
+                % jsondecode returns a name as char ('' for ""), and null as
+                % [] or NaN. A number or boolean decodes to a double or
+                % logical; mapping it to null would rewrite the file with
+                % different metadata on the next write, so it is an error.
                 for i = 1:numel(names)
-                    if isempty(names{i})
+                    entry = names{i};
+                    if ischar(entry)
+                        dn(i) = string(entry);
+                    elseif isnumeric(entry) && (isempty(entry) || (isscalar(entry) && isnan(entry)))
                         dn(i) = missing;
                     else
-                        dn(i) = string(names{i});
+                        error("zarr:InvalidMetadata", ...
+                            "dimension_names entry %d must be a string or null.", i);
                     end
+                end
+                if numel(dn) ~= numel(obj.shape)
+                    error("zarr:InvalidMetadata", ...
+                        "dimension_names must have one entry per dimension: " + ...
+                        "expected %d, found %d.", numel(obj.shape), numel(dn));
                 end
                 obj.dimensionNames = dn;
             end
