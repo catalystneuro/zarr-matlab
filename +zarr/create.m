@@ -34,7 +34,7 @@ function z = create(store, shape, dtype, opts)
 arguments
     store
     shape (1,:) double {mustBeNonnegative, mustBeInteger}
-    dtype {mustBeDataType} = "double"
+    dtype {zarr.internal.mustBeDataType} = "double"
     opts.Path (1,1) string = ""
     opts.ChunkShape (1,:) double = []
     opts.ShardShape (1,:) double = []
@@ -170,17 +170,6 @@ zarr.internal.ensure_parents(store, path);
 store.set(key, unicode2native(char(meta.toJsonText()), 'UTF-8'));
 z = zarr.Array(store, path, meta);
 z.writeEmptyChunks = opts.WriteEmptyChunks;
-end
-
-function mustBeDataType(dtype)
-%MUSTBEDATATYPE Validate dtype: one data type name, or one {name, configuration} struct.
-
-isName = isStringScalar(dtype) || (ischar(dtype) && isrow(dtype));
-if ~isName && ~(isstruct(dtype) && isscalar(dtype))
-    error("zarr:UnsupportedDataType", ...
-        "dtype must be one data type name, such as ""double"", or a scalar struct " + ...
-        "with fields name and configuration.");
-end
 end
 
 function checkStructuredFillValue(value, info, label)
