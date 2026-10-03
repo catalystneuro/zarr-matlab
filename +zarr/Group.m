@@ -106,7 +106,7 @@ classdef Group < handle
                 obj
                 name (1,1) string
                 shape (1,:) double
-                dtype (1,1) string = "double"
+                dtype {zarr.internal.mustBeDataType} = "double"
                 opts.ChunkShape = []
                 opts.ShardShape = []
                 opts.IndexLocation (1,1) string = "end"

@@ -13,6 +13,8 @@ types written by zarr-python.
 | `string` | `string` array | variable-length UTF-8 (`vlen-utf8` codec) |
 | `variable_length_bytes` | cell of `uint8` row vectors | `vlen-bytes` codec; create with `"bytes"` |
 | `numpy.datetime64` / `numpy.timedelta64` | `int64` ticks | see below |
+| `struct` (legacy name `structured`) | struct array | records of named fixed-size fields; see below |
+| `fixed_length_utf32` | `string` array | fixed-size UTF-32 text, mostly as a `struct` field |
 
 `zarr.create` accepts either MATLAB class names (`"double"`, `"logical"`) or
 Zarr names (`"float64"`, `"bool"`).
@@ -52,6 +54,32 @@ raw(:) = {uint8([1 2 3]); uint8.empty(1, 0); uint8(255)};
 out = raw(:);
 assert(isequal(out{1}, uint8([1 2 3])) && isempty(out{2}))
 ```
+
+## Structured records
+
+The `struct` data type stores records of named, fixed-size fields, which
+HDF5 and NWB call a compound type. MATLAB holds such an array as a struct
+array with one field per record field. The data type is defined by its list
+of fields, so `zarr.create` takes it as a struct with `name` and
+`configuration`, in the same shape it has in `zarr.json`. A text field is
+`fixed_length_utf32`, which spends four bytes per character.
+
+```matlab
+labelType = struct('name', "fixed_length_utf32", ...
+    'configuration', struct('length_bytes', 32));        % up to 8 characters
+fields = struct('name', {'id'; 'label'}, 'data_type', {'int32'; labelType});
+recordType = struct('name', "struct", 'configuration', struct('fields', fields));
+
+records = zarr.create(store, 3, recordType, Path="records");
+records.write(struct('id', {int32(1); int32(2)}, 'label', {"alpha"; "beta"}), 1);
+out = records.read();
+assert(out(2).label == "beta")
+assert(out(3).id == 0 && out(3).label == "")              % default fill record
+```
+
+A `FillValue` for a structured array is a scalar struct with every field.
+Arrays that zarr-python wrote before version 3.3 use the legacy name
+`structured`; zarr-matlab reads them and writes them back under that name.
 
 ## Datetimes: exact by design
 

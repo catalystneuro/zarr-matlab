@@ -7,7 +7,7 @@ import sys
 import numpy as np
 import zarr
 
-from interop_cases import CASES, RESERVED_ATTRS, build_codec_kwargs, pattern
+from interop_cases import CASES, RESERVED_ATTRS, STRUCT_DTYPES, build_codec_kwargs, pattern
 
 
 def main(root):
@@ -18,7 +18,7 @@ def main(root):
     for name, dtype, shape, chunks, spec in CASES:
         kwargs = build_codec_kwargs(spec)
         arr = group.create_array(
-            name, shape=shape, dtype=dtype,
+            name, shape=shape, dtype=STRUCT_DTYPES.get(dtype, dtype),
             chunks=chunks if len(shape) else "auto",
             **kwargs,
         )
