@@ -151,10 +151,18 @@ classdef ManifestStore < zarr.stores.Store
             end
             base = double(entry.offset);
             n = min(len, double(entry.length) - offset);
+            isAbsoluteUrl = startsWith(target, "http://") || startsWith(target, "https://");
+            if obj.isHttp && ~isAbsoluteUrl
+                % A relative path names a file beside the index the way a store
+                % key does, so it is encoded the same way before it joins the
+                % index URL.
+                target = zarr.internal.encode_url_path(target);
+            end
             resolved = zarr.internal.resolve_relative(obj.root, target);
             if startsWith(resolved, "http://") || startsWith(resolved, "https://")
-                % A manifest path is a URL, already percent-encoded and possibly
-                % carrying a query string, so it is requested exactly as written.
+                % The URL is now fully encoded: an absolute one came that way
+                % from the manifest, possibly with a query string. So it is
+                % requested exactly as written.
                 [data, found] = zarr.internal.http_read_range(resolved, base + offset, n);
             else
                 fid = fopen(resolved, 'r');

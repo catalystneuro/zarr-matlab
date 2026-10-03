@@ -62,10 +62,9 @@ classdef HttpStore < zarr.stores.Store
 
     methods (Access = private)
         function url = keyUrl(obj, key)
-            % Percent-encode characters that would change URL semantics
-            % ('#' starts a fragment; .mat-derived stores use '#refs#').
-            key = strrep(strrep(strrep(string(key), "%", "%25"), "#", "%23"), " ", "%20");
-            url = obj.baseUrl + "/" + key;
+            % Keys can hold characters that change what a URL names, such as
+            % the '#' in the '#refs#' keys of .mat-derived stores.
+            url = obj.baseUrl + "/" + zarr.internal.encode_url_path(key);
         end
     end
 end

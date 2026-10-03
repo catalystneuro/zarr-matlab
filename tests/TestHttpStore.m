@@ -153,10 +153,40 @@ classdef TestHttpStore < matlab.unittest.TestCase
             end
         end
 
+        function manifestRelativePathOverHttp(tc)
+            % A relative manifest path names a file beside the index, as a
+            % store key does, so "#", "%" and spaces in it are literal.
+            src = zarr.stores.MemoryStore();
+            d = int32(1:6)';
+            zarr.create(src, 6, "int32", ChunkShape=6).write(d);
+            [chunk, ~] = src.get("c/0");
+            [meta, ~] = src.get("zarr.json");
+            indexDir = fullfile(tc.servedRoot, "idx");
+            mkdir(indexDir);
+            writeBytes(fullfile(indexDir, "zarr.json"), meta);
+            indexUrl = sprintf("http://127.0.0.1:%d/idx", tc.port);
+
+            for name = ["c#d e.bin", "p%41.bin"]
+                writeBytes(fullfile(tc.servedRoot, name), chunk);
+                manifest = "{""chunks"":{""c/0"":{""path"":""../" + name + ...
+                    """,""offset"":0,""length"":" + numel(chunk) + "}}}";
+                writeBytes(fullfile(indexDir, "manifest.json"), unicode2native(char(manifest), 'UTF-8'));
+                z = zarr.open(zarr.stores.ManifestStore(indexUrl));
+                tc.verifyEqual(z(:), d, "path: ../" + name);
+            end
+        end
+
         function readOnlyEnforced(tc)
             store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
             tc.verifyError(@() store.set("x", uint8(1)), "zarr:StoreError");
             tc.verifyError(@() store.list(), "zarr:StoreError");
         end
     end
+end
+
+function writeBytes(filePath, bytes)
+%WRITEBYTES Write bytes to a file, replacing any earlier content.
+fid = fopen(filePath, "w");
+fwrite(fid, bytes);
+fclose(fid);
 end
