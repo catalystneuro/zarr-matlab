@@ -11,7 +11,9 @@ function info = dtype_info(dtype, config)
 %     isVlen      - true for variable-length types (string, bytes)
 %     isStructured - true for a structured data type, i.e. zarrType
 %                   "struct" or "structured" (see below)
-%     config      - extension dtype configuration struct, or []
+%     config      - extension dtype configuration struct, or []. For a
+%                   structured type, config.fields is an Nx1 cell, so that
+%                   it is written back as a JSON list even with one field
 %     fields      - when isStructured, a struct array (one entry per
 %                   field) with fields Name, Info (this same dtype_info
 %                   struct, recursively), Offset (0-based byte offset
@@ -96,7 +98,7 @@ if ismember(dtype, ["struct", "structured"])
     if ~isstruct(config) || ~isfield(config, 'fields')
         error("zarr:InvalidMetadata", "%s requires a fields configuration.", dtype);
     end
-    fields = structuredFieldInfo(config.fields, dtype);
+    [fields, config.fields] = structuredFieldInfo(config.fields, dtype);
     itemsize = 0;
     if ~isempty(fields)
         itemsize = fields(end).Offset + fields(end).Info.itemsize;
@@ -147,7 +149,7 @@ info = struct( ...
     'fields', []);
 end
 
-function fields = structuredFieldInfo(rawFields, dtype)
+function [fields, entries] = structuredFieldInfo(rawFields, dtype)
 %STRUCTUREDFIELDINFO Normalize a structured dtype's fields configuration.
 %   rawFields is jsondecode's output for the fields list, in either of the
 %   two shapes a structured dtype uses on disk (see
@@ -164,8 +166,14 @@ function fields = structuredFieldInfo(rawFields, dtype)
 %
 %   In both shapes a field's data_type is either a data_type name (char)
 %   or a nested extension-dtype struct with name/configuration.
+%
+%   entries is the same fields list as an Nx1 cell, with the fields list of
+%   any nested structured data_type held the same way. jsondecode returns a
+%   one-entry list of objects as a 1x1 struct, which jsonencode writes as
+%   an object; a cell is always written as a list.
 
 fields = struct('Name', {}, 'Info', {}, 'Offset', {});
+entries = cell(numel(rawFields), 1);
 offset = 0;
 for i = 1:numel(rawFields)
     if isstruct(rawFields)
@@ -180,6 +188,15 @@ for i = 1:numel(rawFields)
             "Field '%s' of a %s data type has the variable-length type '%s'; " + ...
             "its fields must have a fixed size.", name, dtype, subInfo.zarrType);
     end
+    if subInfo.isStructured
+        fieldType.configuration = subInfo.config;
+        if isstruct(entry)
+            entry.data_type = fieldType;
+        else
+            entry{2} = fieldType;
+        end
+    end
+    entries{i} = entry;
     fields(end + 1) = struct('Name', name, 'Info', subInfo, 'Offset', offset); %#ok<AGROW>
     offset = offset + subInfo.itemsize;
 end

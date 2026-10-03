@@ -47,6 +47,16 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
                     struct('name', 'fixed_length_utf32', 'configuration', struct('length_bytes', 32))});
             dtypeJson = struct('name', "struct", 'configuration', struct('fields', fields));
         end
+
+        function fields = writtenFieldsList(metaText)
+            % The data_type fields list of a zarr.json text. JSON arrays stay
+            % cells here, where jsondecode returns a 1x1 struct for both a
+            % one-element list and a bare object.
+            meta = zarr.internal.json_decode_exact(metaText);
+            dataType = meta{"data_type"};
+            configuration = dataType{"configuration"};
+            fields = configuration{"fields"};
+        end
     end
 
     methods (Test)
@@ -337,6 +347,68 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             storePath = fullfile(tempFixture.Folder, "noconfig.zarr");
             tc.verifyError(@() zarr.create(storePath, 2, "struct"), ...
                 "zarr:InvalidMetadata");
+        end
+
+        function oneFieldStructWritesFieldsAsList(tc)
+            % A fields list with one entry is written as a one-element list,
+            % at the top level and in a nested structured field.
+            store = zarr.stores.MemoryStore();
+            inner = struct('name', "struct", 'configuration', struct( ...
+                'fields', struct('name', {'p'}, 'data_type', {'int16'})));
+            dtype = struct('name', "struct", 'configuration', struct( ...
+                'fields', struct('name', {'pt'}, 'data_type', {inner})));
+            z = zarr.create(store, 2, dtype);
+            z.write(struct('pt', {struct('p', int16(3)); struct('p', int16(4))}));
+
+            [bytes, ~] = store.get("zarr.json");
+            outerFields = tc.writtenFieldsList(native2unicode(bytes, 'UTF-8'));
+            tc.verifyClass(outerFields, 'cell');
+            tc.verifyNumElements(outerFields, 1);
+            outerEntry = outerFields{1};
+            innerType = outerEntry{"data_type"};
+            innerConfiguration = innerType{"configuration"};
+            innerFields = innerConfiguration{"fields"};
+            tc.verifyClass(innerFields, 'cell');
+            tc.verifyNumElements(innerFields, 1);
+
+            back = zarr.open(store).read();
+            tc.verifyEqual(back(2).pt.p, int16(4));
+        end
+
+        function metadataRewriteKeepsOneFieldList(tc)
+            % zarr-python writes a one-field list, which jsondecode reads as a
+            % 1x1 struct. Rewriting the metadata must keep it a list.
+            store = zarr.stores.MemoryStore();
+            metaText = ['{"zarr_format":3,"node_type":"array","shape":[2],', ...
+                '"data_type":{"name":"struct","configuration":{"fields":[{"name":"id","data_type":"int32"}]}},', ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2]}},', ...
+                '"chunk_key_encoding":{"name":"default","configuration":{"separator":"/"}},', ...
+                '"fill_value":{"id":0},"codecs":[{"name":"bytes","configuration":{"endian":"little"}}]}'];
+            store.set("zarr.json", unicode2native(metaText, 'UTF-8'));
+
+            z = zarr.open(store);
+            z.setAttrs(struct('note', "rewritten"));
+
+            [bytes, ~] = store.get("zarr.json");
+            fields = tc.writtenFieldsList(native2unicode(bytes, 'UTF-8'));
+            tc.verifyClass(fields, 'cell');
+            tc.verifyNumElements(fields, 1);
+        end
+
+        function handBuiltMetadataWritesOneFieldList(tc)
+            % ArrayMetadata built directly, with the fields list as the 1x1
+            % struct jsondecode would give, is written with a list too.
+            meta = zarr.metadata.ArrayMetadata();
+            meta.shape = 2;
+            meta.dataType = "struct";
+            meta.dataTypeConfig = struct('fields', struct('name', {'id'}, 'data_type', {'int32'}));
+            meta.chunkShape = 2;
+            meta.fillValue = struct('id', int32(0));
+            meta.codecs = {zarr.codecs.BytesCodec()};
+
+            fields = tc.writtenFieldsList(meta.toJsonText());
+            tc.verifyClass(fields, 'cell');
+            tc.verifyNumElements(fields, 1);
         end
     end
 

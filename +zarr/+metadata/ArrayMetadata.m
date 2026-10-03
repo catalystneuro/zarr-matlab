@@ -142,11 +142,14 @@ classdef ArrayMetadata
             parts(end + 1) = """zarr_format"":3";
             parts(end + 1) = """node_type"":""array""";
             parts(end + 1) = """shape"":" + jsonIntList(obj.shape);
-            if isempty(obj.dataTypeConfig)
+            % Encode the configuration as dtype_info returns it, where a
+            % structured type's fields list is a cell and so is always
+            % written as a JSON list.
+            if isempty(info.config)
                 parts(end + 1) = """data_type"":""" + obj.dataType + """";
             else
                 parts(end + 1) = """data_type"":{""name"":""" + obj.dataType + ...
-                    """,""configuration"":" + string(jsonencode(obj.dataTypeConfig)) + "}";
+                    """,""configuration"":" + string(jsonencode(info.config)) + "}";
             end
             parts(end + 1) = """chunk_grid"":{""name"":""regular"",""configuration"":{""chunk_shape"":" + ...
                 jsonIntList(obj.chunkShape) + "}}";
