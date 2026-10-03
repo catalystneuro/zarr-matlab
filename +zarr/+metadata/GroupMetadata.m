@@ -5,7 +5,9 @@ classdef GroupMetadata
         % Cell-valued dictionary so that attribute keys survive exactly;
         % assigning a struct converts it (see set.attributes).
         attributes = dictionary(string.empty, {})
-        consolidated = []   % containers.Map: node path -> raw zarr.json text, or []
+        % containers.Map: node path -> raw zarr.json text, for every node
+        % below the group. [] when the group has no consolidated metadata.
+        consolidated = []
     end
 
     methods (Static)
@@ -48,6 +50,14 @@ classdef GroupMetadata
             % cell-valued dictionary, so callers can keep passing structs
             % for keys that are valid MATLAB identifiers.
             obj.attributes = zarr.internal.attribute_dictionary(value);
+        end
+
+        function tf = isConsolidated(obj)
+            %ISCONSOLIDATED True if the group carries consolidated metadata.
+            %   A map with no entries counts: it states that the group has
+            %   no children. isempty is true for that map and for [], so it
+            %   cannot tell the two apart.
+            tf = isa(obj.consolidated, "containers.Map");
         end
 
         function txt = toJsonText(obj)

@@ -126,6 +126,23 @@ classdef TestZipAndConsolidated < matlab.unittest.TestCase
             tc.verifyEqual(node.read(), (1:3)');  % data reads still hit the store
         end
 
+        function consolidatedEmptyGroupIgnoresStore(tc)
+            % A group without children answers from consolidated metadata like
+            % any other. The child created after consolidation exists in the
+            % store only, so a group that asked the store would report it.
+            store = zarr.stores.MemoryStore();
+            root = zarr.create_group(store);
+            root.createGroup("empty");
+            zarr.consolidate_metadata(store);
+            zarr.create_group(store, Path="empty/late");
+
+            emptyGroup = zarr.open(store).item("empty");
+            [arrayNames, groupNames] = emptyGroup.children();
+            tc.verifyEqual(arrayNames, string.empty(0, 1));
+            tc.verifyEqual(groupNames, string.empty(0, 1));
+            tc.verifyFalse(emptyGroup.isKey("late"));
+        end
+
         function consolidationPreservedOnAttrUpdate(tc)
             root = fullfile(tc.work, "e.zarr");
             ls = zarr.stores.LocalStore(root);
