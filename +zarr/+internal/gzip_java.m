@@ -131,6 +131,10 @@ end
 if uint32(crcObj.getValue()) ~= expectedCrc
     error("zarr:CodecError", "Gzip CRC mismatch: corrupt data.");
 end
+expectedSize = typecast(bytes(trailer+4:trailer+7), 'uint32');
+if uint32(mod(numel(out), 2^32)) ~= expectedSize
+    error("zarr:CodecError", "Gzip size mismatch: corrupt data.");
+end
 next = trailer + 8;
 end
 

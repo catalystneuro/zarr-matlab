@@ -135,5 +135,12 @@ classdef TestInternals < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.gzip_java('decompress', noTerminator), "zarr:CodecError");
             tc.verifyError(@() zarr.internal.gzip_java('decompress', longExtra), "zarr:CodecError");
         end
+
+        function gzipChecksMemberSize(tc)
+            % The trailer's ISIZE must match the decoded length.
+            member = zarr.internal.gzip_java('compress', uint8(1:50), 5);
+            member(end-3) = member(end-3) + 1;
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', member), "zarr:CodecError");
+        end
     end
 end
