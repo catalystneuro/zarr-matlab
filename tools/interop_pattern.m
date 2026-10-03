@@ -42,7 +42,7 @@ end
 
 function records = structPattern(info, base)
 %STRUCTPATTERN Mirror of _struct_pattern in tools/interop_cases.py.
-args = cell(1, 2 * numel(info.fields));
+args = cell(1, 2*numel(info.fields));
 for k = 1:numel(info.fields)
     f = info.fields(k);
     if f.Info.isStructured
@@ -50,12 +50,12 @@ for k = 1:numel(info.fields)
     elseif f.Info.zarrType == "fixed_length_utf32"
         values = "s" + string(base);
     elseif startsWith(f.Info.zarrType, "float")
-        values = cast(base / 4, char(f.Info.matlabClass));
+        values = cast(base/4, char(f.Info.matlabClass));
     else
         values = cast(base, char(f.Info.matlabClass));
     end
-    args{2 * k - 1} = char(f.Name);
-    args{2 * k} = num2cell(values);
+    args{2*k-1} = char(f.Name);
+    args{2*k} = num2cell(values);
 end
 records = struct(args{:});
 end
