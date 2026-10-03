@@ -360,6 +360,26 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyError(@() z.write([1 2]), "zarr:TypeMismatch");
         end
 
+        function createRejectsIncompleteStructFillValue(tc)
+            % FillValue must be a scalar struct with every field, at every level.
+            store = zarr.stores.MemoryStore();
+            dtype = tc.canonicalDtypeJson();
+            tc.verifyError(@() zarr.create(store, 2, dtype, FillValue=struct('a', int32(1))), ...
+                "zarr:TypeMismatch");
+            twoRecords = struct('a', {int32(1); int32(2)}, 'b', 0, 'c', "");
+            tc.verifyError(@() zarr.create(store, 2, dtype, FillValue=twoRecords), ...
+                "zarr:TypeMismatch");
+
+            pointType = struct('name', "struct", 'configuration', struct( ...
+                'fields', struct('name', {'p'}, 'data_type', {'int16'})));
+            nested = struct('name', "struct", 'configuration', struct( ...
+                'fields', struct('name', {'pt'}, 'data_type', {pointType})));
+            tc.verifyError(@() zarr.create(store, 2, nested, FillValue=struct('pt', struct())), ...
+                "zarr:TypeMismatch");
+            z = zarr.create(store, 2, nested, FillValue=struct('pt', struct('p', int16(5))));
+            tc.verifyEqual(z.meta.fillValue.pt.p, int16(5));
+        end
+
         function createRejectsConfiguredDtypeNamedWithoutConfig(tc)
             import matlab.unittest.fixtures.TemporaryFolderFixture
             tempFixture = tc.applyFixture(TemporaryFolderFixture);

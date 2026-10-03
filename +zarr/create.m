@@ -103,10 +103,7 @@ else
     elseif info.zarrType == "variable_length_bytes"
         fillValue = uint8(fillValue(:)');
     elseif info.isStructured
-        if ~isstruct(fillValue)
-            error("zarr:TypeMismatch", ...
-                "structured arrays take a scalar struct FillValue with one field per record field.");
-        end
+        checkStructuredFillValue(fillValue, info, "FillValue");
     else
         fillValue = cast(fillValue, char(info.matlabClass));
     end
@@ -173,4 +170,25 @@ zarr.internal.ensure_parents(store, path);
 store.set(key, unicode2native(char(meta.toJsonText()), 'UTF-8'));
 z = zarr.Array(store, path, meta);
 z.writeEmptyChunks = opts.WriteEmptyChunks;
+end
+
+function checkStructuredFillValue(value, info, label)
+%CHECKSTRUCTUREDFILLVALUE Error unless value has every field of a structured type.
+%   label names value in the error message, e.g. "FillValue.pt" for a
+%   nested field.
+
+if ~isstruct(value) || ~isscalar(value)
+    error("zarr:TypeMismatch", ...
+        "%s must be a scalar struct with one field per record field.", label);
+end
+for k = 1:numel(info.fields)
+    f = info.fields(k);
+    if ~isfield(value, f.Name)
+        error("zarr:TypeMismatch", ...
+            "%s has no field '%s'. Give it one field per record field.", label, f.Name);
+    end
+    if f.Info.isStructured
+        checkStructuredFillValue(value.(f.Name), f.Info, label + "." + f.Name);
+    end
+end
 end
