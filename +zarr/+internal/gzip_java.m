@@ -47,7 +47,7 @@ parts = {};
 pos = 1;  % first byte of the current member (1-based)
 while pos <= n
     [part, pos] = decompressMember(bytes, pos);
-    parts{end + 1} = part; %#ok<AGROW>
+    parts{end+1} = part; %#ok<AGROW>
     % Zero bytes may pad a stream after a member; gzip readers, Python's
     % among them, skip them.
     nonZero = find(bytes(pos:end) ~= 0, 1);
@@ -68,13 +68,13 @@ function [out, next] = decompressMember(bytes, pos)
 %   next is the index of the first byte after the member's 8-byte trailer.
 sliceBytes = 65536;  % input handed to the inflater per write
 n = numel(bytes);
-if n - pos + 1 < 18 || bytes(pos) ~= 31 || bytes(pos + 1) ~= 139 || bytes(pos + 2) ~= 8
+if n - pos + 1 < 18 || bytes(pos) ~= 31 || bytes(pos+1) ~= 139 || bytes(pos+2) ~= 8
     error("zarr:CodecError", "Invalid gzip stream.");
 end
-flg = bytes(pos + 3);
+flg = bytes(pos+3);
 pos = pos + 10;  % first byte after the fixed 10-byte header
 if bitand(flg, 4)  % FEXTRA
-    xlen = double(bytes(pos)) + 256 * double(bytes(pos + 1));
+    xlen = double(bytes(pos)) + 256*double(bytes(pos+1));
     pos = pos + 2 + xlen;
 end
 if bitand(flg, 8)  % FNAME: zero-terminated
@@ -101,7 +101,7 @@ try
     % than the whole rest of the stream.
     sliceStart = pos;
     while sliceStart <= n && ~inflater.finished()
-        sliceEnd = min(sliceStart + sliceBytes - 1, n);
+        sliceEnd = min(sliceStart+sliceBytes-1, n);
         ios.write(typecast(bytes(sliceStart:sliceEnd), 'int8'));
         sliceStart = sliceEnd + 1;
     end
@@ -123,7 +123,7 @@ trailer = pos + consumed;  % CRC32 then ISIZE, 4 bytes each
 if trailer + 7 > n
     error("zarr:CodecError", "Invalid gzip stream.");
 end
-expectedCrc = typecast(bytes(trailer:trailer + 3), 'uint32');
+expectedCrc = typecast(bytes(trailer:trailer+3), 'uint32');
 crcObj = java.util.zip.CRC32();
 if ~isempty(out)
     crcObj.update(typecast(out, 'int8'));
