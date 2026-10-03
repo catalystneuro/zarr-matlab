@@ -4,6 +4,8 @@ classdef TestHttpStore < matlab.unittest.TestCase
 
     properties
         root
+        servedRoot
+        requestLog
         port
         proc
         python
@@ -28,8 +30,8 @@ classdef TestHttpStore < matlab.unittest.TestCase
             % port file is outside the served tree.
             tc.root = fullfile(tempdir, "zm_http_" + string(feature('getpid')));
             if isfolder(tc.root), rmdir(tc.root, 's'); end
-            storeRoot = fullfile(tc.root, "store");
-            ls = zarr.stores.LocalStore(storeRoot);
+            tc.servedRoot = fullfile(tc.root, "store");
+            ls = zarr.stores.LocalStore(tc.servedRoot);
             zarr.create_group(ls, Attributes=struct('served', true));
             zarr.create(ls, [10 8], "float64", Path="a", ChunkShape=[5 4], ...
                 Codecs={zarr.codecs.GzipCodec(5)}).write(reshape(1:80, [10 8]));
@@ -52,8 +54,11 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 "print(server.server_address[1], flush=True); " + ...
                 "server.serve_forever()";
             portFile = fullfile(tc.root, "port");
-            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>/dev/null & echo $!', ...
-                tc.python, serverCode, storeRoot, portFile);
+            % The handler logs each request line to stderr, which goes to
+            % requestLog, so a test can see exactly what reached the server.
+            tc.requestLog = fullfile(tc.root, "requests.log");
+            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>"%s" & echo $!', ...
+                tc.python, serverCode, tc.servedRoot, portFile, tc.requestLog);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
@@ -124,10 +129,73 @@ classdef TestHttpStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.open(store, Path="nope"), "zarr:NodeNotFound");
         end
 
+        function manifestUrlIsRequestedAsWritten(tc)
+            % A manifest path is an encoded URL: "%20" names a space, and a
+            % query string may contain "/".
+            src = zarr.stores.MemoryStore();
+            d = int32(1:6)';
+            zarr.create(src, 6, "int32", ChunkShape=6).write(d);
+            [chunk, ~] = src.get("c/0");
+            [meta, ~] = src.get("zarr.json");
+            fid = fopen(fullfile(tc.servedRoot, "a b.bin"), 'w');
+            fwrite(fid, chunk);
+            fclose(fid);
+
+            fileUrl = sprintf("http://127.0.0.1:%d/a%%20b.bin", tc.port);
+            for url = [fileUrl, fileUrl + "?sig=x/y%2Fz"]
+                indexDir = tc.applyFixture(matlab.unittest.fixtures.TemporaryFolderFixture()).Folder;
+                fid = fopen(fullfile(indexDir, "zarr.json"), 'w');
+                fwrite(fid, meta);
+                fclose(fid);
+                fid = fopen(fullfile(indexDir, "manifest.json"), 'w');
+                fwrite(fid, unicode2native(char("{""chunks"":{""c/0"":{""path"":""" + url + ...
+                    """,""offset"":0,""length"":" + numel(chunk) + "}}}"), 'UTF-8'));
+                fclose(fid);
+
+                z = zarr.open(zarr.stores.ManifestStore(indexDir));
+                tc.verifyEqual(z(:), d, "URL: " + url);
+                % The server ignores the query, so check its request log: the
+                % path and query must arrive exactly as written.
+                requestTarget = extractAfter(url, "127.0.0.1:" + tc.port);
+                tc.verifySubstring(string(fileread(tc.requestLog)), ...
+                    "GET " + requestTarget + " HTTP", "URL: " + url);
+            end
+        end
+
+        function manifestRelativePathOverHttp(tc)
+            % A relative manifest path names a file beside the index, as a
+            % store key does, so "#", "%" and spaces in it are literal.
+            src = zarr.stores.MemoryStore();
+            d = int32(1:6)';
+            zarr.create(src, 6, "int32", ChunkShape=6).write(d);
+            [chunk, ~] = src.get("c/0");
+            [meta, ~] = src.get("zarr.json");
+            indexDir = fullfile(tc.servedRoot, "idx");
+            mkdir(indexDir);
+            writeBytes(fullfile(indexDir, "zarr.json"), meta);
+            indexUrl = sprintf("http://127.0.0.1:%d/idx", tc.port);
+
+            for name = ["c#d e.bin", "p%41.bin"]
+                writeBytes(fullfile(tc.servedRoot, name), chunk);
+                manifest = "{""chunks"":{""c/0"":{""path"":""../" + name + ...
+                    """,""offset"":0,""length"":" + numel(chunk) + "}}}";
+                writeBytes(fullfile(indexDir, "manifest.json"), unicode2native(char(manifest), 'UTF-8'));
+                z = zarr.open(zarr.stores.ManifestStore(indexUrl));
+                tc.verifyEqual(z(:), d, "path: ../" + name);
+            end
+        end
+
         function readOnlyEnforced(tc)
             store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
             tc.verifyError(@() store.set("x", uint8(1)), "zarr:StoreError");
             tc.verifyError(@() store.list(), "zarr:StoreError");
         end
     end
+end
+
+function writeBytes(filePath, bytes)
+%WRITEBYTES Write bytes to a file, replacing any earlier content.
+fid = fopen(filePath, "w");
+fwrite(fid, bytes);
+fclose(fid);
 end
