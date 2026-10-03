@@ -24,9 +24,12 @@ classdef TestHttpStore < matlab.unittest.TestCase
             tc.assumeTrue(strlength(tc.python) > 0, 'python not found');
 
             % Build a store to serve: array + shards + strings + consolidated.
+            % The store sits in a subfolder of tc.root so that the server's
+            % port file is outside the served tree.
             tc.root = fullfile(tempdir, "zm_http_" + string(feature('getpid')));
             if isfolder(tc.root), rmdir(tc.root, 's'); end
-            ls = zarr.stores.LocalStore(tc.root);
+            storeRoot = fullfile(tc.root, "store");
+            ls = zarr.stores.LocalStore(storeRoot);
             zarr.create_group(ls, Attributes=struct('served', true));
             zarr.create(ls, [10 8], "float64", Path="a", ChunkShape=[5 4], ...
                 Codecs={zarr.codecs.GzipCodec(5)}).write(reshape(1:80, [10 8]));
@@ -40,29 +43,42 @@ classdef TestHttpStore < matlab.unittest.TestCase
             % before it starts listening, and that reverse lookup can take tens
             % of seconds on hosts with slow name resolution (GitHub's macOS
             % runners among them).
+            % The server binds port 0, so the OS assigns a port that is free
+            % for this run, and prints that port to stdout, which goes to
+            % portFile.
             serverCode = "import functools, http.server, socketserver, sys; " + ...
-                "handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[2]); " + ...
-                "socketserver.ThreadingTCPServer(('127.0.0.1', int(sys.argv[1])), handler).serve_forever()";
-            tc.port = 8000 + randi(1000);
-            cmd = sprintf('"%s" -c "%s" %d "%s" >/dev/null 2>&1 & echo $!', ...
-                tc.python, serverCode, tc.port, tc.root);
+                "handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]); " + ...
+                "server = socketserver.ThreadingTCPServer(('127.0.0.1', 0), handler); " + ...
+                "print(server.server_address[1], flush=True); " + ...
+                "server.serve_forever()";
+            portFile = fullfile(tc.root, "port");
+            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>/dev/null & echo $!', ...
+                tc.python, serverCode, storeRoot, portFile);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
-            % Probe with webread, the client HttpStore uses. Programs started
-            % with system() inherit MATLAB's library path on Linux, which makes
-            % the system curl load MATLAB's bundled libcurl and fail to start.
+            % Wait for the port, then probe with webread, the client HttpStore
+            % uses. Programs started with system() inherit MATLAB's library
+            % path on Linux, which makes the system curl load MATLAB's bundled
+            % libcurl and fail to start. The port file is re-read on every
+            % attempt because it can be read while still empty or part-written.
             probeOptions = weboptions(Timeout=1, ContentType="binary");
-            probeUrl = sprintf("http://127.0.0.1:%d/zarr.json", tc.port);
             reachable = false;
-            probeMessage = "";
+            probeMessage = "the server did not report its port";
             for attempt = 1:20
-                try
-                    webread(probeUrl, probeOptions);
-                    reachable = true;
-                    break
-                catch err
-                    probeMessage = string(err.message);
+                reportedPort = NaN;
+                if isfile(portFile)
+                    reportedPort = str2double(fileread(portFile));
+                end
+                if ~isnan(reportedPort)
+                    try
+                        webread(sprintf("http://127.0.0.1:%d/zarr.json", reportedPort), probeOptions);
+                        tc.port = reportedPort;
+                        reachable = true;
+                        break
+                    catch err
+                        probeMessage = string(err.message);
+                    end
                 end
                 pause(0.25);
             end
