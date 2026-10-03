@@ -133,5 +133,13 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative( ...
                 "https://h.com/a/../idx", "../../x"), "zarr:StoreError");
         end
+
+        function driveIsTheRootOfAWindowsPath(tc)
+            % A ".." cannot climb above the drive.
+            tc.verifyEqual(zarr.internal.resolve_relative("C:\data\idx.zarr", "../x"), "C:/data/x");
+            tc.verifyEqual(zarr.internal.resolve_relative("C:/data/idx.zarr", "../../x"), "C:/x");
+            tc.verifyError(@() zarr.internal.resolve_relative("C:/data/idx.zarr", "../../../x"), ...
+                "zarr:StoreError");
+        end
     end
 end

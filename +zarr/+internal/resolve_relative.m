@@ -18,16 +18,14 @@ end
 
 if isHttp
     tok = regexp(char(base), '^(https?://[^/]+)(.*)$', 'tokens', 'once');
-    hostPart = string(tok{1});
+    root = string(tok{1}) + "/";
     basePath = string(tok{2});
 else
-    hostPart = "";
-    basePath = strrep(base, "\", "/");
+    [root, basePath] = splitRoot(strrep(base, "\", "/"));
 end
-leadingSlash = ~isHttp && startsWith(basePath, "/");
 % A relative base can climb above its first segment: the result keeps the
 % leading ".." segments and is resolved later against the current folder.
-isRelativeBase = ~isHttp && ~leadingSlash && isempty(regexp(base, '^[A-Za-z]:', 'once'));
+isRelativeBase = strlength(root) == 0;
 
 % The base's own "." and ".." segments follow the same rules as rel's, so
 % "/a/b/../idx" is the base "/a/idx". segs starts as a 1x0 row and stays a
@@ -37,18 +35,7 @@ segs = strings(1, 0);
 segs = applySegments(segs, basePath, isRelativeBase, base);
 segs = applySegments(segs, strrep(rel, "\", "/"), isRelativeBase, rel);
 
-if isempty(segs)
-    joined = "";
-else
-    joined = strjoin(segs, "/");
-end
-if isHttp
-    full = hostPart + "/" + joined;
-elseif leadingSlash
-    full = "/" + joined;
-else
-    full = joined;
-end
+full = root + strjoin(segs, "/");
 end
 
 function segs = applySegments(segs, pathText, isRelativeBase, label)
@@ -70,5 +57,23 @@ for s = reshape(split(pathText, "/"), 1, [])
     else
         segs(end + 1) = s; %#ok<AGROW>
     end
+end
+end
+
+function [root, rest] = splitRoot(p)
+%SPLITROOT Split a filesystem path into its root and the rest.
+%   p uses "/" as the separator. root is the drive with its slash ("C:/")
+%   for a Windows path, "/" for a POSIX path, and "" for a relative path,
+%   whose rest is then all of p. A ".." cannot climb above the root.
+drive = regexp(char(p), '^[A-Za-z]:/?', 'match', 'once');
+if ~isempty(drive)
+    root = string(drive);
+    rest = extractAfter(p, strlength(root));
+elseif startsWith(p, "/")
+    root = "/";
+    rest = extractAfter(p, 1);
+else
+    root = "";
+    rest = p;
 end
 end
