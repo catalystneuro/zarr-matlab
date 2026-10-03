@@ -313,6 +313,23 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             tc.verifyEqual(back.x_y, int32(5));
         end
 
+        function fillValueFieldsKeepExactNumbers(tc)
+            % Each field is decoded from its own text, as a scalar fill value
+            % is: 64-bit integers beyond 2^53 and the sign of negative zero.
+            fields = struct('name', {'big'; 'ubig'; 'neg'}, ...
+                'data_type', {'int64'; 'uint64'; 'float64'});
+            dtype = struct('name', "struct", 'configuration', struct('fields', fields));
+            fill = struct('big', int64(-9007199254740993), ...
+                'ubig', uint64(18446744073709551611), 'neg', -0.0);
+            store = zarr.stores.MemoryStore();
+            zarr.create(store, 2, dtype, FillValue=fill);
+
+            back = zarr.open(store).meta.fillValue;
+            tc.verifyEqual(back.big, fill.big);
+            tc.verifyEqual(back.ubig, fill.ubig);
+            tc.verifyEqual(typecast(back.neg, 'uint64'), typecast(-0.0, 'uint64'));
+        end
+
         function malformedFillValueErrors(tc)
             % Neither an object nor a string, or a string of the wrong size.
             info = zarr.internal.dtype_info(tc.canonicalDtypeJson());

@@ -1,10 +1,19 @@
-function v = decode_fill_value(raw, info)
-%DECODE_FILL_VALUE JSON fill_value (as returned by jsondecode) -> MATLAB scalar.
-%   For a structured type, raw is the fill_value's JSON source text
-%   instead. Its field names are object keys, which must be matched
-%   exactly, and jsondecode renames a key that is not a valid MATLAB
-%   identifier.
+function v = decode_fill_value(text, info)
+%DECODE_FILL_VALUE fill_value JSON text -> MATLAB scalar.
+%   text is the fill_value's source text in zarr.json, as
+%   zarr.internal.json_object_entries returns it. Some values survive
+%   only there: jsondecode goes through double for integers, renames
+%   object keys that are not valid MATLAB identifiers, and the sign of a
+%   negative-zero token is not something every number parser keeps. Each
+%   field of a structured fill value is decoded from its own text the
+%   same way.
 
+text = strtrim(string(text));
+if info.isStructured
+    v = structuredFillValue(text, info);
+    return
+end
+raw = jsondecode(char(text));
 cls = char(info.matlabClass);
 if info.zarrType == "string" || info.zarrType == "fixed_length_utf32"
     v = string(raw);
@@ -15,9 +24,6 @@ elseif info.zarrType == "variable_length_bytes"
     else
         v = reshape(matlab.net.base64decode(char(string(raw))), 1, []);
     end
-    return
-elseif info.isStructured
-    v = structuredFillValue(raw, info);
     return
 end
 if info.isComplex
@@ -32,9 +38,21 @@ elseif info.zarrType == "bool"
     v = logical(raw);
 elseif startsWith(info.zarrType, "float")
     v = cast(scalarFloat(raw, info.itemsize, info), cls);
+    if isnumeric(raw) && isscalar(raw) && raw == 0 && startsWith(text, "-")
+        % "-0", "-0.0" and "-0e0" all mean negative zero.
+        v = -abs(v);
+    end
 else  % integers
     if isnumeric(raw)
         v = cast(raw, cls);
+        if ismember(info.matlabClass, ["int64", "uint64"]) && isscalar(raw) && abs(raw) >= 2^53 ...
+                && ~isempty(regexp(text, '^-?\d+$', 'once'))
+            % Values below 2^53 decode exactly, so only re-read the token
+            % beyond that. Only pure integer literals parse exactly; other
+            % numeric spellings (1e18, 9.1e15) keep the decoded value
+            % rather than turning a readable file into a hard error.
+            v = zarr.internal.parse_int64_token(char(text), info.matlabClass == "int64");
+        end
     else
         v = cast(sscanf(char(string(raw)), '%ld'), cls);
     end
@@ -78,7 +96,6 @@ function v = structuredFillValue(text, info)
 %   yet known at metadata-parse time). zarr-python reads both under
 %   either name, so accept both here. See zarr.internal.dtype_info.
 
-text = strtrim(string(text));
 if startsWith(text, "{")
     [keys, values] = zarr.internal.json_object_entries(text);
     v = struct();
@@ -89,10 +106,8 @@ if startsWith(text, "{")
             % Absent from the object: fall back to the field's own default,
             % as zarr-python does.
             v.(f.Name) = zarr.internal.default_scalar_fill_value(f.Info);
-        elseif f.Info.isStructured
-            v.(f.Name) = zarr.internal.decode_fill_value(values(idx), f.Info);
         else
-            v.(f.Name) = zarr.internal.decode_fill_value(jsondecode(char(values(idx))), f.Info);
+            v.(f.Name) = zarr.internal.decode_fill_value(values(idx), f.Info);
         end
     end
     return
