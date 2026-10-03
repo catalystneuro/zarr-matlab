@@ -98,5 +98,14 @@ classdef TestInternals < matlab.unittest.TestCase
             gz(end - 8) = bitxor(gz(end - 8), 1);
             tc.verifyError(@() zarr.internal.gzip_java('decompress', gz), "zarr:CodecError");
         end
+
+        function gzipCorruptDeflateIsCodecError(tc)
+            % Deflate data that cannot be decoded is a codec error, in any member.
+            good = zarr.internal.gzip_java('compress', uint8(mod(0:3999, 13)), 5);
+            bad = good;
+            bad(11) = 7;  % first deflate byte: a final block of the reserved type 3
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', bad), "zarr:CodecError");
+            tc.verifyError(@() zarr.internal.gzip_java('decompress', [good, bad]), "zarr:CodecError");
+        end
     end
 end

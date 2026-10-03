@@ -83,10 +83,20 @@ end
 inflater = java.util.zip.Inflater(true);
 baos = java.io.ByteArrayOutputStream();
 ios = java.util.zip.InflaterOutputStream(baos, inflater);
-if pos <= n
-    ios.write(typecast(bytes(pos:n), 'int8'));
+try
+    if pos <= n
+        ios.write(typecast(bytes(pos:n), 'int8'));
+    end
+    ios.close();
+catch err
+    javaMethod('end', inflater);
+    % Deflate data that cannot be decoded makes the inflater throw a Java
+    % ZipException; any other error is not about the data.
+    if ~strcmp(err.identifier, "MATLAB:Java:GenericException")
+        rethrow(err);
+    end
+    error("zarr:CodecError", "Gzip: invalid or corrupt deflate data.");
 end
-ios.close();
 consumed = double(inflater.getBytesRead());
 javaMethod('end', inflater);
 out = typecast(int8(baos.toByteArray())', 'uint8');
