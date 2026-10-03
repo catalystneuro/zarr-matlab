@@ -267,7 +267,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             fv = struct('a', int32(7), 'b', -1.5, 'c', "hi");
             txt = zarr.internal.encode_fill_value_json(fv, info);
             tc.verifyEqual(txt, "{""a"":7,""b"":-1.5,""c"":""hi""}");
-            back = zarr.internal.decode_fill_value(jsondecode(char(txt)), info);
+            back = zarr.internal.decode_fill_value(txt, info);
             tc.verifyEqual(back.a, fv.a);
             tc.verifyEqual(back.b, fv.b);
             tc.verifyEqual(back.c, fv.c);
@@ -278,7 +278,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             fv = struct('a', int32(7), 'b', -1.5, 'c', "hi");
             txt = zarr.internal.encode_fill_value_json(fv, info);
             tc.verifyTrue(startsWith(txt, """"));
-            back = zarr.internal.decode_fill_value(jsondecode(char(txt)), info);
+            back = zarr.internal.decode_fill_value(txt, info);
             tc.verifyEqual(back.a, fv.a);
             tc.verifyEqual(back.c, fv.c);
         end
@@ -288,7 +288,7 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             canonical = zarr.internal.dtype_info(tc.canonicalDtypeJson());
             fv = struct('a', int32(3), 'b', 2.5, 'c', "x");
             legacyText = zarr.internal.encode_fill_value_json(fv, tc.structInfo());
-            back = zarr.internal.decode_fill_value(jsondecode(char(legacyText)), canonical);
+            back = zarr.internal.decode_fill_value(legacyText, canonical);
             tc.verifyEqual(back.a, fv.a);
             tc.verifyEqual(back.c, fv.c);
         end
@@ -297,10 +297,20 @@ classdef TestStructuredDtype < matlab.unittest.TestCase
             % hdmf-zarr writes "0" into string fields (the record default is
             % 0 cast field-wise); a field left out entirely defaults too.
             info = zarr.internal.dtype_info(tc.canonicalDtypeJson());
-            back = zarr.internal.decode_fill_value(struct('a', 4), info);
+            back = zarr.internal.decode_fill_value('{"a":4}', info);
             tc.verifyEqual(back.a, int32(4));
             tc.verifyEqual(back.b, 0);
             tc.verifyEqual(back.c, "");
+        end
+
+        function fillValueKeysMatchExactly(tc)
+            % The object carries "x-y", which is not a field. jsondecode would
+            % rename it to x_y and move the real "x_y" key to x_y_1.
+            dtypeJson = struct('name', "struct", 'configuration', struct('fields', ...
+                struct('name', {'a'; 'x_y'}, 'data_type', {'int32'; 'int32'})));
+            info = zarr.internal.dtype_info(dtypeJson);
+            back = zarr.internal.decode_fill_value('{"a":1,"x-y":9,"x_y":5}', info);
+            tc.verifyEqual(back.x_y, int32(5));
         end
 
         function createStructArrayEndToEnd(tc)

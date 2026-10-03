@@ -61,7 +61,6 @@ classdef ArrayMetadata
 
             info = zarr.internal.dtype_info(m.data_type);
             obj.dataTypeConfig = info.config;
-            obj.fillValue = zarr.internal.decode_fill_value(m.fill_value, info);
 
             % Some values survive only in the source text: jsondecode goes
             % through double for integers, renames keys that are not valid
@@ -71,6 +70,12 @@ classdef ArrayMetadata
             % "attributes", so tokenize the top-level keys instead.
             [topKeys, topVals] = zarr.internal.json_object_entries(txt);
             fillIdx = find(topKeys == "fill_value", 1);
+            if info.isStructured
+                % Its field names are keys of the fill_value object.
+                obj.fillValue = zarr.internal.decode_fill_value(topVals(fillIdx), info);
+            else
+                obj.fillValue = zarr.internal.decode_fill_value(m.fill_value, info);
+            end
             if (info.matlabClass == "int64" || info.matlabClass == "uint64") ...
                     && ~info.isVlen && isnumeric(m.fill_value) ...
                     && isscalar(m.fill_value) && abs(m.fill_value) >= 2^53 ...
