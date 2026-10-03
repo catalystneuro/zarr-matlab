@@ -173,14 +173,11 @@ function [fields, entries] = structuredFieldInfo(rawFields, dtype)
 %   an object; a cell is always written as a list.
 
 fields = struct('Name', {}, 'Info', {}, 'Offset', {});
-entries = cell(numel(rawFields), 1);
+rawEntries = zarr.metadata.ArrayMetadata.asList(rawFields);
+entries = cell(numel(rawEntries), 1);
 offset = 0;
-for i = 1:numel(rawFields)
-    if isstruct(rawFields)
-        entry = rawFields(i);
-    else
-        entry = rawFields{i};
-    end
+for i = 1:numel(rawEntries)
+    entry = rawEntries{i};
     [name, fieldType] = fieldNameAndType(entry, i, dtype);
     subInfo = zarr.internal.dtype_info(fieldType);
     if isnan(subInfo.itemsize)
