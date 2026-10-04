@@ -6,6 +6,9 @@ classdef ManifestStore < zarr.stores.Store
     %   store = zarr.stores.ManifestStore("/path/to/index.zarr")
     %   store = zarr.stores.ManifestStore("https://host/index.zarr")
     %
+    %   A relative index location is resolved against the current folder
+    %   when the store is created, and root holds the absolute path.
+    %
     %   manifest.json format (aligned with VirtualiZarr's ChunkManifest):
     %   {
     %     "manifest_format": 1,
@@ -34,8 +37,14 @@ classdef ManifestStore < zarr.stores.Store
 
     methods
         function obj = ManifestStore(root)
-            obj.root = strip(string(root), 'right', '/');
-            obj.isHttp = startsWith(obj.root, "http://") || startsWith(obj.root, "https://");
+            root = strip(string(root), 'right', '/');
+            obj.isHttp = startsWith(root, "http://") || startsWith(root, "https://");
+            if ~obj.isHttp
+                % Resolve a relative location now, so a later change of folder
+                % does not move the index or the chunk files it points to.
+                root = zarr.internal.resolve_relative(pwd(), root);
+            end
+            obj.root = root;
             if obj.isHttp
                 obj.metaStore = zarr.stores.HttpStore(obj.root);
             else

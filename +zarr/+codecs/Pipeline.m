@@ -18,6 +18,10 @@ classdef Pipeline
             if nargin < 4
                 fillValue = zarr.internal.default_scalar_fill_value(info);
             end
+            unsupported = zarr.internal.find_unsupported_codec(codecs);
+            if ~isempty(unsupported)
+                unsupported.throwUnsupported();
+            end
             obj.info = info;
             obj.chunkShape = reshape(chunkShape, 1, []);
             obj.fillValue = fillValue;
