@@ -131,7 +131,15 @@ classdef ArrayMetadata
 
         function txt = toJsonText(obj)
             info = zarr.internal.dtype_info(obj.dataType, obj.dataTypeConfig);
-            pipeline = zarr.codecs.Pipeline(obj.codecs, info, obj.chunkShape);
+            if isempty(zarr.internal.find_unsupported_codec(obj.codecs))
+                % Building the pipeline validates the chain before it is written.
+                codecsJson = zarr.codecs.Pipeline(obj.codecs, info, obj.chunkShape).toJson();
+            else
+                % A chain read from a store with an unsupported codec is
+                % written back as it was read.
+                entries = string(cellfun(@(c) c.configJson(), obj.codecs, 'UniformOutput', false));
+                codecsJson = "[" + strjoin(entries, ",") + "]";
+            end
 
             parts = strings(0, 1);
             parts(end + 1) = """zarr_format"":3";
@@ -151,7 +159,7 @@ classdef ArrayMetadata
             parts(end + 1) = """chunk_key_encoding"":{""name"":""" + obj.keyEncoding + ...
                 """,""configuration"":{""separator"":""" + obj.keySeparator + """}}";
             parts(end + 1) = """fill_value"":" + zarr.internal.encode_fill_value_json(obj.fillValue, info);
-            parts(end + 1) = """codecs"":" + pipeline.toJson();
+            parts(end + 1) = """codecs"":" + codecsJson;
             if numEntries(obj.attributes) > 0
                 parts(end + 1) = """attributes"":" + zarr.internal.json_encode_exact(obj.attributes);
             end

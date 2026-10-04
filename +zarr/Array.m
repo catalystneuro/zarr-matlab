@@ -27,7 +27,11 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
     end
 
     properties (Access = private)
-        pipeline
+        % pipelineCache - Codec pipeline, built when the array is opened.
+        % An array whose chain holds a codec zarr-matlab does not implement
+        % opens without one, and codecPipeline raises zarr:UnsupportedCodec
+        % when its data is read or written.
+        pipelineCache = []
         info
     end
 
@@ -42,8 +46,9 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             obj.path = zarr.internal.normalize_path(path);
             obj.meta = meta;
             obj.info = zarr.internal.dtype_info(meta.dataType, meta.dataTypeConfig);
-            obj.pipeline = zarr.codecs.Pipeline(meta.codecs, obj.info, ...
-                meta.chunkShape, meta.fillValue);
+            if isempty(zarr.internal.find_unsupported_codec(meta.codecs))
+                obj.pipelineCache = obj.codecPipeline();
+            end
         end
 
         % ------------------------------------------------------------------
@@ -73,7 +78,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             out = zarr.internal.fill_array(obj.meta.fillValue, ...
                 zarr.internal.mshape(count), obj.info);
             parts = zarr.internal.chunk_intersections(start - 1, count, obj.meta.chunkShape);
-            sh = obj.pipeline.soleSharding();
+            sh = obj.codecPipeline().soleSharding();
             if ~isempty(sh)
                 for t = 1:numel(parts)
                     out = obj.readFromShard(sh, obj.chunkStoreKey(parts(t).coords), parts(t), out);
@@ -93,7 +98,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 [encoded, found] = obj.store.getMany(keys);
                 for t = find(found)  % absent chunks keep the fill value
                     p = batch(t);
-                    chunk = obj.pipeline.decode(encoded{t});
+                    chunk = obj.codecPipeline().decode(encoded{t});
                     encoded{t} = [];
                     src = subsFor(p.inStart, p.inCount);
                     dst = subsFor(p.outStart, p.inCount);
@@ -144,7 +149,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 else
                     [bytes, found] = obj.store.get(key);
                     if found
-                        chunk = obj.pipeline.decode(bytes);
+                        chunk = obj.codecPipeline().decode(bytes);
                     else
                         chunk = zarr.internal.fill_array(obj.meta.fillValue, ...
                             zarr.internal.mshape(cs), obj.info);
@@ -156,7 +161,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                         zarr.internal.fill_array(obj.meta.fillValue, size(chunk), obj.info))
                     obj.store.erase(key);
                 else
-                    obj.store.set(key, obj.pipeline.encode(chunk));
+                    obj.store.set(key, obj.codecPipeline().encode(chunk));
                 end
             end
         end
@@ -263,7 +268,10 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             codecNames = cellfun(@(c) string(c.name), obj.meta.codecs);
             fprintf('  zarr.Array  %s  %s\n', shapeStr, obj.meta.dataType);
             fprintf('     path: /%s   store: %s\n', obj.path, class(obj.store));
-            sh = obj.pipeline.soleSharding();
+            sh = [];
+            if ~isempty(obj.pipelineCache)
+                sh = obj.pipelineCache.soleSharding();
+            end
             if ~isempty(sh)
                 fprintf('    shard: [%s]   chunk: [%s]\n', ...
                     strjoin(string(obj.meta.chunkShape), " "), ...
@@ -292,17 +300,23 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 error("zarr:Indexing", ...
                     "Chained indexing on a zarr.Array is not supported; read into a variable first.");
             end
-            [idx, flatAll] = obj.resolveIndices(indexOp(1).Indices);
+            subscripts = indexOp(1).Indices;
+            [idx, flatAll] = obj.resolveIndices(subscripts);
             if flatAll
                 out = obj.read();
                 out = out(:);
             elseif isempty(idx)  % rank 0: z()
                 out = obj.read();
+            elseif any(cellfun(@isempty, idx))
+                out = zarr.internal.fill_array(obj.meta.fillValue, ...
+                    emptySelectionSize(subscripts, idx, numel(obj)), obj.info);
             else
-                first = cellfun(@min, idx);
-                last = cellfun(@max, idx);
+                R = numel(obj.meta.shape);
+                first = cellfun(@min, idx(1:R));
+                last = cellfun(@max, idx(1:R));
                 block = obj.read(first, last - first + 1);
-                rel = cellfun(@(v, f) v - f + 1, idx, num2cell(first), 'UniformOutput', false);
+                rel = idx;  % subscripts beyond the rank index singleton dimensions of block
+                rel(1:R) = cellfun(@(v, f) v - f + 1, idx(1:R), num2cell(first), 'UniformOutput', false);
                 out = block(rel{:});
             end
             varargout = {out};
@@ -323,28 +337,28 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 obj.write(reshape(value, zarr.internal.mshape(obj.meta.shape)));
                 return
             end
-            if isempty(idx)  % rank 0
-                obj.write(value);
-                return
-            end
 
             counts = cellfun(@numel, idx);
-            if isscalar(value) && prod(counts) > 1
+            if isscalar(value)
                 value = repmat(value, zarr.internal.mshape(counts));
             elseif numel(value) ~= prod(counts)
                 error("zarr:ShapeMismatch", ...
                     "Assignment value has %d elements; index selects %d.", numel(value), prod(counts));
             end
+            if any(counts == 0)
+                return  % the subscripts select no elements, so there is nothing to write
+            end
             value = reshape(value, zarr.internal.mshape(counts));
 
             contiguous = all(cellfun(@(v) isequal(v, v(1):v(end)), idx));
-            first = cellfun(@min, idx);
+            first = cellfun(@min, idx(1:R));
             if contiguous
                 obj.write(value, first);
             else
-                last = cellfun(@max, idx);
+                last = cellfun(@max, idx(1:R));
                 block = obj.read(first, last - first + 1);
-                rel = cellfun(@(v, f) v - f + 1, idx, num2cell(first), 'UniformOutput', false);
+                rel = idx;  % subscripts beyond the rank index singleton dimensions of block
+                rel(1:R) = cellfun(@(v, f) v - f + 1, idx(1:R), num2cell(first), 'UniformOutput', false);
                 block(rel{:}) = value;
                 obj.write(block, first);
             end
@@ -373,6 +387,15 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
 
     % ----------------------------------------------------------------------
     methods (Access = private)
+        function p = codecPipeline(obj)
+            %CODECPIPELINE The array's codec pipeline, built on first use.
+            if isempty(obj.pipelineCache)
+                obj.pipelineCache = zarr.codecs.Pipeline(obj.meta.codecs, obj.info, ...
+                    obj.meta.chunkShape, obj.meta.fillValue);
+            end
+            p = obj.pipelineCache;
+        end
+
         function key = metaStoreKey(obj)
             if strlength(obj.path) == 0
                 key = "zarr.json";
@@ -408,46 +431,46 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
         end
 
         function [idx, flatAll] = resolveIndices(obj, raw)
-            shape = obj.meta.shape;
-            R = numel(shape);
+            %RESOLVEINDICES Index vectors for paren subscripts, one per subscript.
+            %   Subscripts address the MATLAB size of the array (see size);
+            %   every dimension beyond that size has length 1. An index
+            %   vector is empty when its subscript selects nothing.
+            R = numel(obj.meta.shape);
+            N = numel(raw);
+            idx = {};
             flatAll = false;
-            if R == 0
-                if ~isempty(raw)
-                    error("zarr:Indexing", "A rank-0 array takes no subscripts: use z().");
-                end
-                idx = {};
+            if N == 0 && R == 0
                 return
             end
-            if numel(raw) == 1 && R ~= 1
+            if N == 1 && R >= 2
                 if iscolon(raw{1})
-                    idx = {};
                     flatAll = true;
                     return
                 end
                 error("zarr:Indexing", ...
                     "Linear indexing is not supported (except z(:)); use %d subscripts.", R);
             end
-            if numel(raw) ~= R
+            if N < R
                 error("zarr:Indexing", ...
-                    "Expected %d subscripts for a rank-%d array, got %d.", R, R, numel(raw));
+                    "Expected at least %d subscripts for a rank-%d array, got %d.", R, R, N);
             end
-            idx = cell(1, R);
-            for d = 1:R
+            extent = zarr.internal.mshape(obj.meta.shape);
+            extent = [extent, ones(1, N - numel(extent))];
+            idx = cell(1, N);
+            for d = 1:N
                 v = raw{d};
                 if iscolon(v)
-                    idx{d} = 1:shape(d);
-                elseif islogical(v)
-                    idx{d} = reshape(find(v), 1, []);
+                    idx{d} = 1:extent(d);
                 else
+                    if islogical(v)
+                        v = find(v);
+                    end
                     v = reshape(double(v), 1, []);
-                    if any(v < 1) || any(v > shape(d)) || any(v ~= floor(v))
+                    if any(v < 1) || any(v > extent(d)) || any(v ~= floor(v))
                         error("zarr:Indexing", ...
-                            "Subscript %d out of bounds for dimension of size %d.", d, shape(d));
+                            "Subscript %d out of bounds for dimension of size %d.", d, extent(d));
                     end
                     idx{d} = v;
-                end
-                if isempty(idx{d})
-                    error("zarr:Indexing", "Empty subscripts are not supported.");
                 end
             end
         end
@@ -492,14 +515,14 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
         function out = readScalar(obj)
             [bytes, found] = obj.store.get(obj.chunkStoreKey([]));
             if found
-                out = obj.pipeline.decode(bytes);
+                out = obj.codecPipeline().decode(bytes);
             else
                 out = obj.meta.fillValue;
             end
         end
 
         function writeScalar(obj, data)
-            obj.store.set(obj.chunkStoreKey([]), obj.pipeline.encode(obj.coerce(data)));
+            obj.store.set(obj.chunkStoreKey([]), obj.codecPipeline().encode(obj.coerce(data)));
         end
 
         function data = coerce(obj, data)
@@ -573,4 +596,26 @@ end
 
 function tf = iscolon(v)
 tf = (ischar(v) && isequal(v, ':')) || (isstring(v) && v == ":");
+end
+
+function sz = emptySelectionSize(subscripts, idx, numElements)
+%EMPTYSELECTIONSIZE Size of the result when subscripts select no elements.
+%   Follows MATLAB indexing of an in-memory array. Two or more subscripts
+%   give one dimension per subscript. A single subscript indexes the
+%   numElements-by-1 array linearly: the result is a column when the
+%   subscript is a vector and the array is not a scalar, and has the shape
+%   of the subscript otherwise.
+if ~isscalar(subscripts)
+    sz = cellfun(@numel, idx);
+    return
+end
+subscript = subscripts{1};
+if islogical(subscript)
+    subscript = find(subscript);  % a mask selects as the indices of its true elements do
+end
+if iscolon(subscript) || (isvector(subscript) && numElements ~= 1)
+    sz = [0 1];
+else
+    sz = size(subscript);
+end
 end
