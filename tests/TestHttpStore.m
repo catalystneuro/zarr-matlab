@@ -124,6 +124,37 @@ classdef TestHttpStore < matlab.unittest.TestCase
             tc.verifyEqual(s(3:4, 5:6), d(3:4, 5:6));
         end
 
+        function readSpanningChunksFetchesConcurrently(tc)
+            % "a" has 2 x 2 chunks, so a full read fetches four, which meets
+            % the default ParallelThreshold. Fetching them concurrently, in
+            % turn, or one request at a time must give the same data.
+            expected = reshape(1:80, [10 8]);
+            store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
+            a = zarr.open(store, Path="a");
+            tc.verifyEqual(tc.verifyWarningFree(@() a.read()), expected);
+
+            store.MaxConcurrentRequests = 1;
+            tc.verifyEqual(a.read(), expected);
+
+            store.MaxConcurrentRequests = 8;
+            store.ParallelThreshold = Inf;
+            tc.verifyEqual(a.read(), expected);
+        end
+
+        function getManyKeepsOrderAndReportsAbsentKeys(tc)
+            store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
+            store.ParallelThreshold = 2;
+            keys = ["a/c/1/1", "missing/key", "a/c/0/0", "a/zarr.json", "a/c/0/9"];
+
+            [values, found] = store.getMany(keys);
+
+            tc.verifyEqual(found, [true false true true false]);
+            for i = find(found)
+                tc.verifyEqual(values{i}, store.get(keys(i)), keys(i));
+            end
+            tc.verifyEmpty(values{2});
+        end
+
         function emptyGroupIsBrowsedWithoutRequests(tc)
             % Consolidated metadata states that the group has no children, so
             % browsing it needs no listing, which an HTTP store cannot give.

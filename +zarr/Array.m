@@ -35,6 +35,11 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
         info
     end
 
+    properties (Constant, Access = private)
+        % ChunkBatchSize - Chunks read fetches through one getMany call.
+        ChunkBatchSize = 64
+    end
+
     methods
         function obj = Array(store, path, meta)
             obj.store = store;
@@ -74,21 +79,31 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 zarr.internal.mshape(count), obj.info);
             parts = zarr.internal.chunk_intersections(start - 1, count, obj.meta.chunkShape);
             sh = obj.codecPipeline().soleSharding();
-            for t = 1:numel(parts)
-                p = parts(t);
-                key = obj.chunkStoreKey(p.coords);
-                if ~isempty(sh)
-                    out = obj.readFromShard(sh, key, p, out);
-                    continue
+            if ~isempty(sh)
+                for t = 1:numel(parts)
+                    out = obj.readFromShard(sh, obj.chunkStoreKey(parts(t).coords), parts(t), out);
                 end
-                [bytes, found] = obj.store.get(key);
-                if ~found
-                    continue  % output is pre-filled with fill value
+                return
+            end
+
+            % Chunks are fetched a batch at a time through getMany, which a
+            % store such as HttpStore serves with concurrent requests. The
+            % batch bounds how many encoded chunks are held at once.
+            for first = 1:obj.ChunkBatchSize:numel(parts)
+                batch = parts(first:min(first + obj.ChunkBatchSize - 1, numel(parts)));
+                keys = strings(1, numel(batch));
+                for t = 1:numel(batch)
+                    keys(t) = obj.chunkStoreKey(batch(t).coords);
                 end
-                chunk = obj.codecPipeline().decode(bytes);
-                src = subsFor(p.inStart, p.inCount);
-                dst = subsFor(p.outStart, p.inCount);
-                out(dst{:}) = chunk(src{:});
+                [encoded, found] = obj.store.getMany(keys);
+                for t = find(found)  % absent chunks keep the fill value
+                    p = batch(t);
+                    chunk = obj.codecPipeline().decode(encoded{t});
+                    encoded{t} = [];
+                    src = subsFor(p.inStart, p.inCount);
+                    dst = subsFor(p.outStart, p.inCount);
+                    out(dst{:}) = chunk(src{:});
+                end
             end
         end
 
