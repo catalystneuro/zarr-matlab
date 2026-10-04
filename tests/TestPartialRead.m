@@ -1,6 +1,7 @@
 classdef TestPartialRead < matlab.unittest.TestCase
     %Partial reads of uncompressed chunks: only the rows along the first
-    %axis that a region touches are fetched, with one ranged request.
+    %axis that a region touches are fetched, with one ranged request. A
+    %region that touches a single row is narrowed along the next axis.
 
     methods (Test)
         function readsOnlyTouchedRows(tc)
@@ -11,10 +12,64 @@ classdef TestPartialRead < matlab.unittest.TestCase
             tc.verifyEqual(probe.bytesRead, 100 * 10 * 2);
         end
 
-        function singleElementReadsOneRow(tc)
+        function singleElementReadsOneItem(tc)
             [z, probe, d] = TestPartialRead.int16Array([10000 10], [10000 10]);
             tc.verifyEqual(z(778, 6), d(778, 6));
-            tc.verifyEqual(probe.bytesRead, 10 * 2);
+            tc.verifyEqual(probe.partialRanges, [(777 * 10 + 5) * 2, 2]);
+        end
+
+        function singleRowReadsOnlyTouchedColumns(tc)
+            [z, probe, d] = TestPartialRead.int16Array([10000 10], [10000 10]);
+            tc.verifyEqual(z(778, 3:6), d(778, 3:6));
+            tc.verifyEqual(probe.partialRanges, [(777 * 10 + 2) * 2, 4 * 2]);
+        end
+
+        function singleFrameIsNarrowedAlongNextAxis(tc)
+            % A [20 30 10] chunk of int16: a frame is 600 bytes, a row 20.
+            frame = 7 * 600;
+            cases = {
+                {8, 11:20, 6:9},  [frame + 10 * 20, 10 * 20]       % rows of a frame
+                {8, 11:20, ':'},  [frame + 10 * 20, 10 * 20]
+                {8, 11, 6:9},     [frame + 10 * 20 + 5 * 2, 4 * 2]  % columns of a row
+                {8, 11, 6},       [frame + 10 * 20 + 5 * 2, 2]      % a point
+                {8, ':', 6:9},    [frame, 600]                      % a whole frame
+                {8:9, 11:20, 6:9}, [frame, 2 * 600]                 % two frames, read whole
+                {8, 11:3:20, 6},  [frame + 10 * 20, 10 * 20]        % rows 11 to 20
+            };
+            [z, probe, d] = TestPartialRead.int16Array([20 30 10], [20 30 10]);
+            for k = 1:size(cases, 1)
+                idx = cases{k, 1};
+                probe.resetCounts();
+                tc.verifyEqual(z(idx{:}), d(idx{:}), sprintf("case %d", k));
+                tc.verifyEqual(probe.nFullGets, 0, sprintf("case %d", k));
+                tc.verifyEqual(probe.partialRanges, cases{k, 2}, sprintf("case %d", k));
+            end
+        end
+
+        function narrowsEachChunkARegionSpans(tc)
+            % Chunks of [5 4 6]: a frame is 24 items, a row 6.
+            [z, probe, d] = TestPartialRead.int16Array([10 8 6], [5 4 6]);
+            tc.verifyEqual(z(7, 3:6, 2), d(7, 3:6, 2));
+            % Frame 7 is index 1 of its chunks; rows 3:4 and 5:6 fall in two chunks.
+            tc.verifyEqual(probe.nFullGets, 0);
+            tc.verifyEqual(sortrows(probe.partialRanges), ...
+                [(24 + 0) * 2, 2 * 6 * 2; (24 + 2 * 6) * 2, 2 * 6 * 2]);
+        end
+
+        function axesOfLengthOneArePassedThrough(tc)
+            [z, probe, d] = TestPartialRead.int16Array([1 30 10], [1 30 10]);
+            tc.verifyEqual(z(1, 11:20, 6:9), d(1, 11:20, 6:9));
+            tc.verifyEqual(probe.partialRanges, [10 * 20, 10 * 20]);
+            probe.resetCounts();
+            tc.verifyEqual(z(1, :, 6:9), d(1, :, 6:9));  % the whole chunk
+            tc.verifyEqual(probe.nFullGets, 1);
+            tc.verifyEqual(probe.nPartialGets, 0);
+        end
+
+        function missingChunkIsFillWhenNarrowed(tc)
+            z = zarr.create(CountingStore(), [10 6 4], "int16", ChunkShape=[10 6 4], ...
+                FillValue=7);
+            tc.verifyEqual(z(4, 2:3, :), repmat(int16(7), 1, 2, 4));
         end
 
         function steppedIndexReadsBoundingRows(tc)
@@ -60,8 +115,9 @@ classdef TestPartialRead < matlab.unittest.TestCase
             chunks = {10, [8 5], [10 4 2]};
             regions = {
                 {4:9, 20, 31:37}
-                {{4:9, ':'}, {12, 2:4}, {1:3:23, 5}}
-                {{4:9, ':', ':'}, {17, 2, 3}, {11:2:30, 1:3, 2}}
+                {{4:9, ':'}, {12, 2:4}, {1:3:23, 5}, {12, ':'}, {23, 5}, {9, 1:2:5}}
+                {{4:9, ':', ':'}, {17, 2, 3}, {11:2:30, 1:3, 2}, {17, 2:3, ':'}, ...
+                    {17, ':', 2}, {5, 3, 1:2}, {31, 4, 3}, {10:11, 2, 3}, {20, 1:4, 1:2:3}}
             };
             for k = 1:numel(dtypes)
                 for r = 1:numel(shapes)
@@ -106,8 +162,10 @@ classdef TestPartialRead < matlab.unittest.TestCase
             end
             probe = CountingStore();
             z = zarr.create(probe, shape, "int16", ChunkShape=chunkShape, Codecs=codecs);
-            d = reshape(int16(mod(0:prod(shape) - 1, 30000)), flip(shape)).';
-            z(:, :) = d;
+            R = numel(shape);
+            d = permute(reshape(int16(mod(0:prod(shape) - 1, 30000)), flip(shape)), R:-1:1);
+            whole = repmat({':'}, 1, R);
+            z(whole{:}) = d;
             probe.resetCounts();
         end
 

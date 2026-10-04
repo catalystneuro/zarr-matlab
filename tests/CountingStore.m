@@ -6,6 +6,7 @@ classdef CountingStore < zarr.stores.Store
         nPartialGets (1,1) double = 0
         nSuffixGets (1,1) double = 0
         bytesRead (1,1) double = 0   % bytes returned for chunk keys
+        partialRanges (:,2) double = zeros(0, 2)  % [offset len] of each getPartial
     end
 
     properties (Access = private)
@@ -27,6 +28,7 @@ classdef CountingStore < zarr.stores.Store
 
         function [data, found] = getPartial(obj, key, offset, len)
             obj.nPartialGets = obj.nPartialGets + 1;
+            obj.partialRanges(end + 1, :) = [offset len];
             [data, found] = obj.inner.getPartial(key, offset, len);
             obj.bytesRead = obj.bytesRead + numel(data);
         end
@@ -62,6 +64,7 @@ classdef CountingStore < zarr.stores.Store
             obj.nPartialGets = 0;
             obj.nSuffixGets = 0;
             obj.bytesRead = 0;
+            obj.partialRanges = zeros(0, 2);
         end
     end
 end

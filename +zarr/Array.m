@@ -77,9 +77,12 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                     out = obj.readFromShard(sh, key, p, out);
                     continue
                 end
-                if ~isempty(bc) && p.inCount(1) < obj.meta.chunkShape(1)
-                    out = obj.readRows(bc, key, p, out);
-                    continue
+                if ~isempty(bc)
+                    [offset, blockShape] = blockWindow(p.inStart, p.inCount, obj.meta.chunkShape);
+                    if prod(blockShape) < prod(obj.meta.chunkShape)
+                        out = obj.readBlock(bc, key, p, offset, blockShape, out);
+                        continue
+                    end
                 end
                 [bytes, found] = obj.store.get(key);
                 if ~found
@@ -442,21 +445,22 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             end
         end
 
-        function out = readRows(obj, bc, key, p, out)
-            %READROWS Partial read of an uncompressed chunk: fetch only the
-            %   rows along the first axis that the region touches. The chunk
-            %   is stored in C order, so those rows are one contiguous run of
-            %   bytes, read with a single ranged request.
-            cs = obj.meta.chunkShape;
-            rowBytes = obj.info.itemsize * prod(cs(2:end));
-            rows = p.inCount(1);
-            [bytes, found] = obj.store.getPartial(key, p.inStart(1) * rowBytes, rows * rowBytes);
+        function out = readBlock(obj, bc, key, p, offset, blockShape, out)
+            %READBLOCK Partial read of an uncompressed chunk: fetch only the
+            %   block of the chunk that the region touches, with a single
+            %   ranged request. offset is where the block starts in the chunk,
+            %   in items, and blockShape is its shape (see blockWindow).
+            itemsize = obj.info.itemsize;
+            [bytes, found] = obj.store.getPartial(key, offset * itemsize, ...
+                prod(blockShape) * itemsize);
             if ~found
                 return  % missing chunk -> fill (already prefilled)
             end
-            chunk = bc.decode(bytes, obj.info, [rows, cs(2:end)], obj.meta.fillValue);
+            chunk = bc.decode(bytes, obj.info, blockShape, obj.meta.fillValue);
+            % Along each axis where the block is shorter than the chunk, it
+            % starts at the region's first index. The other axes are whole.
             inStart = p.inStart;
-            inStart(1) = 0;
+            inStart(blockShape < obj.meta.chunkShape) = 0;
             src = subsFor(inStart, p.inCount);
             dst = subsFor(p.outStart, p.inCount);
             out(dst{:}) = chunk(src{:});
@@ -572,6 +576,28 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             coords = reshape(vals, 1, []);
         end
     end
+end
+
+function [offset, blockShape] = blockWindow(inStart, inCount, chunkShape)
+%BLOCKWINDOW The contiguous block of a C-order chunk that a region touches.
+%   Along the first axis the block spans the rows the region touches. If
+%   that is a single row, the block is narrowed in the same way along the
+%   next axis, and so on. The axes after that are whole.
+%
+%   offset is where the block starts in the chunk, in items. blockShape has
+%   as many axes as the chunk: length 1 along the axes with a single index,
+%   the region's count along the last narrowed axis, and the chunk's length
+%   along the rest. It equals chunkShape when the block is the whole chunk.
+R = numel(chunkShape);
+last = 1;  % the last axis the block is narrowed along
+while last < R && inCount(last) == 1
+    last = last + 1;
+end
+offset = 0;
+for axis = 1:last
+    offset = offset + inStart(axis) * prod(chunkShape(axis + 1:end));
+end
+blockShape = [ones(1, last - 1), inCount(last), reshape(chunkShape(last + 1:end), 1, [])];
 end
 
 function subs = subsFor(start0, count)
