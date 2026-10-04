@@ -12,6 +12,20 @@ classdef (Abstract) Store < handle
     end
 
     methods
+        function [values, found] = getMany(obj, keys)
+            %GETMANY Read several values: one get per key, in order.
+            %   [values, found] = getMany(obj, keys) returns a cell row of
+            %   values and a logical row, one entry per key of the string
+            %   array keys. Stores that can fetch values concurrently
+            %   override it (see zarr.stores.HttpStore).
+            keys = reshape(string(keys), 1, []);
+            values = cell(1, numel(keys));
+            found = false(1, numel(keys));
+            for i = 1:numel(keys)
+                [values{i}, found(i)] = obj.get(keys(i));
+            end
+        end
+
         function [data, found] = getPartial(obj, key, offset, len)
             %GETPARTIAL Byte-range read: len bytes starting at 0-based offset.
             %   Default falls back to a full read; subclasses override with a

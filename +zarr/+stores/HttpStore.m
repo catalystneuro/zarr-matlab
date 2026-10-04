@@ -9,9 +9,25 @@ classdef HttpStore < zarr.stores.Store
     %   HTTP servers are not listable, so hierarchy browsing (children/tree)
     %   requires consolidated metadata (zarr.consolidate_metadata). Direct
     %   opens by path (zarr.open(store, Path="a/b")) always work.
+    %
+    %   A read that spans several chunks fetches them concurrently, on the
+    %   thread workers of backgroundPool (see getMany).
 
     properties (SetAccess = immutable)
         baseUrl (1,1) string
+    end
+
+    properties
+        %MAXCONCURRENTREQUESTS Requests getMany keeps in flight at once
+        %   1 fetches every key in turn.
+        MaxConcurrentRequests (1,1) double {mustBeInteger, mustBePositive} = 8
+
+        %PARALLELTHRESHOLD Fewest keys for which getMany fetches concurrently
+        %   The thread workers of backgroundPool take 1-3 s to start the
+        %   first time they are used in a MATLAB session. Reads of fewer
+        %   keys, such as the single chunk of a scalar array, are fetched in
+        %   turn and never pay that.
+        ParallelThreshold (1,1) double {mustBePositive} = 4
     end
 
     methods
@@ -25,6 +41,40 @@ classdef HttpStore < zarr.stores.Store
 
         function [data, found] = getPartial(obj, key, offset, len)
             [data, found] = zarr.internal.http_read_range(obj.keyUrl(key), offset, len);
+        end
+
+        function [values, found] = getMany(obj, keys)
+            %GETMANY Fetch several values, concurrently when there are enough
+            %   [values, found] = getMany(obj, keys) fetches the keys on the
+            %   thread workers of backgroundPool, at most
+            %   MaxConcurrentRequests at a time, when there are at least
+            %   ParallelThreshold of them; otherwise one after another.
+            %
+            %   Thread workers cannot run every function in every MATLAB
+            %   release. If the concurrent fetch fails but the same keys then
+            %   read one after another, concurrent fetching is turned off for
+            %   the rest of the session, with a warning.
+            keys = reshape(string(keys), 1, []);
+            if numel(keys) < obj.ParallelThreshold || obj.MaxConcurrentRequests == 1 ...
+                    || ~zarr.internal.parallel_fetch_available()
+                [values, found] = getMany@zarr.stores.Store(obj, keys);
+                return
+            end
+            urls = strings(1, numel(keys));
+            for i = 1:numel(keys)
+                urls(i) = obj.keyUrl(keys(i));
+            end
+            try
+                [values, found] = zarr.internal.http_get_parallel(urls, obj.MaxConcurrentRequests);
+            catch parallelError
+                % A failure that also happens one request at a time is a
+                % real one, and the sequential read raises it.
+                [values, found] = getMany@zarr.stores.Store(obj, keys);
+                zarr.internal.parallel_fetch_available(false);
+                warning("zarr:ParallelFetchUnavailable", ...
+                    "Fetching chunks concurrently failed (%s). Chunks are fetched one at a time for the rest of this MATLAB session.", ...
+                    parallelError.message);
+            end
         end
 
         function [data, found] = getSuffix(obj, key, len)
