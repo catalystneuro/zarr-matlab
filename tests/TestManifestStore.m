@@ -108,5 +108,57 @@ classdef TestManifestStore < matlab.unittest.TestCase
             tc.verifyError(@() zarr.internal.resolve_relative("https://h.com/x", ...
                 "../../../d"), "zarr:StoreError");
         end
+
+        function relativeBaseKeepsLeadingParents(tc)
+            % A relative base resolves against the current folder, so ".."
+            % past its first segment stays in the result.
+            tc.verifyEqual(zarr.internal.resolve_relative("../idx.zarr", "../../data.bin"), ...
+                "../../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("idx.zarr", "../../data.bin"), ...
+                "../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("./idx.zarr", "../../data.bin"), ...
+                "../data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("a/idx.zarr", "../data.bin"), ...
+                "a/data.bin");
+            tc.verifyError(@() zarr.internal.resolve_relative("/idx.zarr", "../../data.bin"), ...
+                "zarr:StoreError");
+        end
+
+        function dotDotInBaseIsResolved(tc)
+            % A ".." inside the base names its parent, as it does in rel.
+            tc.verifyEqual(zarr.internal.resolve_relative("/a/b/../idx.zarr", "../../x"), "/x");
+            tc.verifyEqual(zarr.internal.resolve_relative( ...
+                "https://h.com/a/b/../idx", "../../x"), "https://h.com/x");
+            tc.verifyEqual(zarr.internal.resolve_relative("a/../idx.zarr", "../../x"), "../x");
+            tc.verifyError(@() zarr.internal.resolve_relative( ...
+                "https://h.com/a/../idx", "../../x"), "zarr:StoreError");
+        end
+
+        function driveIsTheRootOfAWindowsPath(tc)
+            % A ".." cannot climb above the drive.
+            tc.verifyEqual(zarr.internal.resolve_relative("C:\data\idx.zarr", "../x"), "C:/data/x");
+            tc.verifyEqual(zarr.internal.resolve_relative("C:/data/idx.zarr", "../../x"), "C:/x");
+            tc.verifyError(@() zarr.internal.resolve_relative("C:/data/idx.zarr", "../../../x"), ...
+                "zarr:StoreError");
+        end
+
+        function uncShareIsTheRootOfAPath(tc)
+            % A UNC path keeps its leading "//", and ".." cannot climb above
+            % the share.
+            tc.verifyEqual(zarr.internal.resolve_relative("\\server\share\idx.zarr", "data.bin"), ...
+                "//server/share/idx.zarr/data.bin");
+            tc.verifyEqual(zarr.internal.resolve_relative("//server/share/a/idx.zarr", "../../x"), ...
+                "//server/share/x");
+            tc.verifyError(@() zarr.internal.resolve_relative("\\server\share\idx.zarr", "../../x"), ...
+                "zarr:StoreError");
+        end
+
+        function absoluteRelIsReturnedAsIs(tc)
+            % rel is absolute by the same rule as the base, in either
+            % separator.
+            for rel = ["/abs/x.bin", "\abs\x.bin", "C:\abs\x.bin", "C:/abs/x.bin", "\\server\share\x.bin"]
+                tc.verifyEqual(zarr.internal.resolve_relative("idx.zarr", rel), rel, rel);
+            end
+        end
     end
 end

@@ -8,7 +8,7 @@ import sys
 import numpy as np
 import zarr
 
-from interop_cases import RESERVED_ATTRS, CASES, pattern
+from interop_cases import RESERVED_ATTRS, CASES, STRUCT_DTYPES, pattern
 
 
 def main(root):
@@ -23,16 +23,19 @@ def main(root):
         arr = group[name]
         assert arr.shape == shape, (name, arr.shape, shape)
         if dtype not in ("string", "bytes"):
-            assert arr.dtype == np.dtype(dtype), (name, arr.dtype)
+            assert arr.dtype == np.dtype(STRUCT_DTYPES.get(dtype, dtype)), (name, arr.dtype)
         expected = pattern(shape, dtype)
         if "partial" in spec:
             fill = spec.get("fill_value")
             if fill is None:
-                if dtype.startswith(("datetime64", "timedelta64")):
+                if dtype in STRUCT_DTYPES:
+                    # MATLAB's default record: zero numbers and empty text.
+                    fill = np.zeros((), dtype=STRUCT_DTYPES[dtype])[()]
+                elif dtype.startswith(("datetime64", "timedelta64")):
                     fill = np.array("NaT", dtype=dtype)[()]
                 else:
                     fill = 0
-            full = np.full(shape, fill, dtype=dtype)
+            full = np.full(shape, fill, dtype=STRUCT_DTYPES.get(dtype, dtype))
             region = tuple(slice(0, p) for p in spec["partial"])
             full[region] = expected[region]
             expected = full

@@ -16,6 +16,15 @@ RESERVED_ATTRS = {
     "_REF_ATTR": {"_REFERENCE": {"path": "/general/electrodes", "source": "."}},
 }
 
+# Structured data types, keyed by the dtype name the CASES below use for them.
+# zarr-python writes these as the "struct" data type, and a "<U" field as
+# fixed_length_utf32. struct_one has a single field that is itself a struct
+# with a single field, so its fields lists have one entry at both levels.
+STRUCT_DTYPES = {
+    "struct_mixed": np.dtype([("id", "<i4"), ("value", "<f8"), ("label", "<U8")]),
+    "struct_one": np.dtype([("pt", [("p", "<i2")])]),
+}
+
 CASES = [
     # name, dtype, shape, chunks, codec spec
     ("f64_gzip", "float64", (10, 13), (4, 5), {"compressors": ["gzip5"]}),
@@ -58,6 +67,9 @@ CASES = [
     ("str2d", "string", (5, 4), (2, 3), {"compressors": ["gzip5"]}),
     ("str_shard", "string", (6,), (2,), {"shards": (6,)}),
     ("vbytes", "bytes", (7,), (3,), {}),
+    # structured data types (see STRUCT_DTYPES)
+    ("struct_mixed", "struct_mixed", (7,), (3,), {"partial": (5,)}),
+    ("struct_one", "struct_one", (5,), (2,), {}),
     # numpy extension dtypes (int64 ticks; NaT fill)
     ("dt_ns", "datetime64[ns]", (6,), (3,), {}),
     ("td_ms", "timedelta64[ms]", (5,), (2,), {"compressors": ["gzip5"]}),
@@ -79,6 +91,8 @@ CASES = [
 def pattern(shape, dtype):
     n = int(np.prod(shape)) if len(shape) else 1
     base = np.arange(n, dtype=np.float64) % 251
+    if dtype in STRUCT_DTYPES:
+        return _struct_pattern(STRUCT_DTYPES[dtype], base).reshape(shape)
     if dtype == "string":
         return np.array([f"s{int(x)}" for x in base], dtype=object).reshape(shape)
     if dtype == "bytes":
@@ -96,6 +110,22 @@ def pattern(shape, dtype):
     else:
         v = base.astype(dt)
     return v.reshape(shape)
+
+
+def _struct_pattern(dt, base):
+    """Structured records whose fields each follow the pattern of their type."""
+    out = np.zeros(base.shape, dtype=dt)
+    for name in dt.names:
+        field = dt.fields[name][0]
+        if field.names is not None:
+            out[name] = _struct_pattern(field, base)
+        elif field.kind == "U":
+            out[name] = [f"s{int(x)}" for x in base]
+        elif field.kind == "f":
+            out[name] = base / 4
+        else:
+            out[name] = base
+    return out
 
 
 def build_codec_kwargs(spec):

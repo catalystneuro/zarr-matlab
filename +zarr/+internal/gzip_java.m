@@ -5,6 +5,9 @@ function out = gzip_java(mode, bytes, level)
 %
 %   Uses Deflater/InflaterOutputStream so data only ever flows MATLAB -> Java
 %   (Java-filled byte buffers are not visible to MATLAB).
+%
+%   A gzip stream can hold several members one after another (RFC 1952,
+%   section 2.2); decompress returns their concatenated contents.
 
 bytes = uint8(bytes(:)');
 switch mode
@@ -30,47 +33,117 @@ switch mode
         out = [header, raw, crc, isize];
 
     case 'decompress'
-        n = numel(bytes);
-        if n < 18 || bytes(1) ~= 31 || bytes(2) ~= 139 || bytes(3) ~= 8
-            error("zarr:CodecError", "Invalid gzip stream.");
-        end
-        flg = bytes(4);
-        pos = 11;  % first byte after the fixed 10-byte header (1-based)
-        if bitand(flg, 4)  % FEXTRA
-            xlen = double(bytes(pos)) + 256 * double(bytes(pos + 1));
-            pos = pos + 2 + xlen;
-        end
-        if bitand(flg, 8)  % FNAME: zero-terminated
-            pos = find(bytes(pos:end) == 0, 1) + pos;
-        end
-        if bitand(flg, 16)  % FCOMMENT
-            pos = find(bytes(pos:end) == 0, 1) + pos;
-        end
-        if bitand(flg, 2)  % FHCRC
-            pos = pos + 2;
-        end
-        raw = bytes(pos:n - 8);
-
-        inflater = java.util.zip.Inflater(true);
-        baos = java.io.ByteArrayOutputStream();
-        ios = java.util.zip.InflaterOutputStream(baos, inflater);
-        if ~isempty(raw)
-            ios.write(typecast(raw, 'int8'));
-        end
-        ios.close();
-        javaMethod('end', inflater);
-        out = typecast(int8(baos.toByteArray())', 'uint8');
-
-        expectedCrc = typecast(bytes(n - 7:n - 4), 'uint32');
-        crcObj = java.util.zip.CRC32();
-        if ~isempty(out)
-            crcObj.update(typecast(out, 'int8'));
-        end
-        if uint32(crcObj.getValue()) ~= expectedCrc
-            error("zarr:CodecError", "Gzip CRC mismatch: corrupt data.");
-        end
+        out = decompressMembers(bytes);
 
     otherwise
         error("zarr:InternalError", "Unknown gzip_java mode '%s'.", mode);
 end
+end
+
+function out = decompressMembers(bytes)
+%DECOMPRESSMEMBERS Decompress each gzip member in bytes and concatenate them.
+n = numel(bytes);
+parts = {};
+pos = 1;  % first byte of the current member (1-based)
+while pos <= n
+    [part, pos] = decompressMember(bytes, pos);
+    parts{end+1} = part; %#ok<AGROW>
+    % Zero bytes may pad a stream after a member; gzip readers, Python's
+    % among them, skip them.
+    nonZero = find(bytes(pos:end) ~= 0, 1);
+    if isempty(nonZero)
+        pos = n + 1;
+    else
+        pos = pos + nonZero - 1;
+    end
+end
+if isempty(parts)
+    error("zarr:CodecError", "Invalid gzip stream.");
+end
+out = [parts{:}];
+end
+
+function [out, next] = decompressMember(bytes, pos)
+%DECOMPRESSMEMBER Decompress the gzip member that starts at bytes(pos).
+%   next is the index of the first byte after the member's 8-byte trailer.
+sliceBytes = 65536;  % input handed to the inflater per write
+n = numel(bytes);
+if n - pos + 1 < 18 || bytes(pos) ~= 31 || bytes(pos+1) ~= 139 || bytes(pos+2) ~= 8
+    error("zarr:CodecError", "Invalid gzip stream.");
+end
+flg = bytes(pos+3);
+pos = pos + 10;  % first byte after the fixed 10-byte header
+if bitand(flg, 4)  % FEXTRA
+    xlen = double(bytes(pos)) + 256*double(bytes(pos+1));
+    pos = pos + 2 + xlen;
+end
+if bitand(flg, 8)  % FNAME: zero-terminated
+    pos = afterTerminator(bytes, pos);
+end
+if bitand(flg, 16)  % FCOMMENT: zero-terminated
+    pos = afterTerminator(bytes, pos);
+end
+if bitand(flg, 2)  % FHCRC
+    pos = pos + 2;
+end
+if pos > n
+    error("zarr:CodecError", "Invalid gzip stream: the header runs past the end.");
+end
+
+% The inflater stops at the end of this member's deflate data and ignores
+% the bytes after it; getBytesRead reports how many it consumed.
+inflater = java.util.zip.Inflater(true);
+baos = java.io.ByteArrayOutputStream();
+ios = java.util.zip.InflaterOutputStream(baos, inflater);
+try
+    % Hand the inflater one slice at a time and stop once this member's
+    % deflate data ends, so each member converts only its own bytes rather
+    % than the whole rest of the stream.
+    sliceStart = pos;
+    while sliceStart <= n && ~inflater.finished()
+        sliceEnd = min(sliceStart+sliceBytes-1, n);
+        ios.write(typecast(bytes(sliceStart:sliceEnd), 'int8'));
+        sliceStart = sliceEnd + 1;
+    end
+    ios.close();
+catch err
+    javaMethod('end', inflater);
+    % Deflate data that cannot be decoded makes the inflater throw a Java
+    % ZipException; any other error is not about the data.
+    if ~strcmp(err.identifier, "MATLAB:Java:GenericException")
+        rethrow(err);
+    end
+    error("zarr:CodecError", "Gzip: invalid or corrupt deflate data.");
+end
+consumed = double(inflater.getBytesRead());
+javaMethod('end', inflater);
+out = typecast(int8(baos.toByteArray())', 'uint8');
+
+trailer = pos + consumed;  % CRC32 then ISIZE, 4 bytes each
+if trailer + 7 > n
+    error("zarr:CodecError", "Invalid gzip stream.");
+end
+expectedCrc = typecast(bytes(trailer:trailer+3), 'uint32');
+crcObj = java.util.zip.CRC32();
+if ~isempty(out)
+    crcObj.update(typecast(out, 'int8'));
+end
+if uint32(crcObj.getValue()) ~= expectedCrc
+    error("zarr:CodecError", "Gzip CRC mismatch: corrupt data.");
+end
+expectedSize = typecast(bytes(trailer+4:trailer+7), 'uint32');
+if uint32(mod(numel(out), 2^32)) ~= expectedSize
+    error("zarr:CodecError", "Gzip size mismatch: corrupt data.");
+end
+next = trailer + 8;
+end
+
+function next = afterTerminator(bytes, pos)
+%AFTERTERMINATOR Index just past the zero byte that ends a header field.
+%   The field starts at bytes(pos); a missing terminator is a codec error.
+terminator = find(bytes(pos:end) == 0, 1);
+if isempty(terminator)
+    error("zarr:CodecError", "Invalid gzip stream: a header field has no terminating zero.");
+end
+next = pos + terminator;
 end

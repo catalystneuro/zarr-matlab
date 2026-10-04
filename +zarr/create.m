@@ -5,7 +5,14 @@ function z = create(store, shape, dtype, opts)
 %   store  - directory path or zarr.stores.Store (the store ROOT)
 %   shape  - Zarr shape (row vector; [] creates a rank-0 scalar array,
 %            a scalar n creates a rank-1 array of length n)
-%   dtype  - MATLAB class name or Zarr data_type (default "double")
+%   dtype  - MATLAB class name or Zarr data_type (default "double"). For a
+%            data_type that needs a configuration -- a "struct" (whose
+%            elements are structs of named fields) or a
+%            "fixed_length_utf32" -- pass the data_type itself as
+%            a scalar struct with fields name and configuration, e.g.
+%              zarr.create(store, 3, struct('name', "struct", ...
+%                  'configuration', struct('fields', fields)))
+%            where fields is a struct array of {name, data_type} entries.
 %
 %   Options:
 %     Path            - node path within the store (default "" = root)
@@ -27,7 +34,7 @@ function z = create(store, shape, dtype, opts)
 arguments
     store
     shape (1,:) double {mustBeNonnegative, mustBeInteger}
-    dtype (1,1) string = "double"
+    dtype {zarr.internal.mustBeDataType} = "double"
     opts.Path (1,1) string = ""
     opts.ChunkShape (1,:) double = []
     opts.ShardShape (1,:) double = []
@@ -44,13 +51,24 @@ end
 
 store = zarr.internal.resolve_store(store);
 path = zarr.internal.normalize_path(opts.Path);
-tok = regexp(char(dtype), '^(?:numpy\.)?(datetime64|timedelta64)\[(\w+)\]$', 'tokens', 'once');
-if ~isempty(tok)
-    dataType = "numpy." + tok{1};
-    dtypeConfig = struct('unit', tok{2}, 'scale_factor', 1);
+if isstruct(dtype)
+    % A data_type that carries a configuration, in the same shape it takes
+    % on disk: {"name": ..., "configuration": ...}.
+    if ~isfield(dtype, 'name') || ~isfield(dtype, 'configuration')
+        error("zarr:UnsupportedDataType", ...
+            "A struct dtype must have both a name and a configuration field.");
+    end
+    dataType = string(dtype.name);
+    dtypeConfig = dtype.configuration;
 else
-    dataType = zarr.internal.normalize_dtype(dtype);
-    dtypeConfig = [];
+    tok = regexp(char(dtype), '^(?:numpy\.)?(datetime64|timedelta64)\[(\w+)\]$', 'tokens', 'once');
+    if ~isempty(tok)
+        dataType = "numpy." + tok{1};
+        dtypeConfig = struct('unit', tok{2}, 'scale_factor', 1);
+    else
+        dataType = zarr.internal.normalize_dtype(dtype);
+        dtypeConfig = [];
+    end
 end
 info = zarr.internal.dtype_info(dataType, dtypeConfig);
 dtypeConfig = info.config;
@@ -84,11 +102,8 @@ else
         fillValue = string(fillValue);
     elseif info.zarrType == "variable_length_bytes"
         fillValue = uint8(fillValue(:)');
-    elseif info.zarrType == "structured"
-        if ~isstruct(fillValue)
-            error("zarr:TypeMismatch", ...
-                "structured arrays take a scalar struct FillValue with one field per record field.");
-        end
+    elseif info.isStructured
+        checkStructuredFillValue(fillValue, info, "FillValue");
     else
         fillValue = cast(fillValue, char(info.matlabClass));
     end
@@ -155,4 +170,25 @@ zarr.internal.ensure_parents(store, path);
 store.set(key, unicode2native(char(meta.toJsonText()), 'UTF-8'));
 z = zarr.Array(store, path, meta);
 z.writeEmptyChunks = opts.WriteEmptyChunks;
+end
+
+function checkStructuredFillValue(value, info, label)
+%CHECKSTRUCTUREDFILLVALUE Error unless value has every field of a structured type.
+%   label names value in the error message, e.g. "FillValue.pt" for a
+%   nested field.
+
+if ~isstruct(value) || ~isscalar(value)
+    error("zarr:TypeMismatch", ...
+        "%s must be a scalar struct with one field per record field.", label);
+end
+for k = 1:numel(info.fields)
+    f = info.fields(k);
+    if ~isfield(value, f.MatlabName)
+        error("zarr:TypeMismatch", ...
+            "%s has no field '%s'. Give it one field per record field.", label, f.MatlabName);
+    end
+    if f.Info.isStructured
+        checkStructuredFillValue(value.(f.MatlabName), f.Info, label + "." + f.MatlabName);
+    end
+end
 end

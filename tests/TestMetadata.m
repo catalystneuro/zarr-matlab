@@ -102,9 +102,34 @@ classdef TestMetadata < matlab.unittest.TestCase
             meta.chunkShape = 2;
             meta.fillValue = -0.0;
             meta.codecs = {zarr.codecs.BytesCodec()};
+            % Spelled as a float token so that Python's json keeps the sign too.
+            tc.verifySubstring(char(meta.toJsonText()), '"fill_value":-0.0');
             m2 = tc.roundTrip(meta);
             tc.verifyEqual(typecast(m2.fillValue, 'uint64'), ...
                 typecast(-0.0, 'uint64'), 'sign bit preserved');
+        end
+
+        function negativeZeroFillFromText(tc)
+            % Other writers spell negative zero in several ways; the sign
+            % bit must survive each of them, for float32 as well.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2],' ...
+                '"data_type":"%s",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":%s,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}]}'];
+            for tok = ["-0", "-0.0", "-0e0"]
+                meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float64", tok));
+                tc.verifyEqual(typecast(meta.fillValue, 'uint64'), ...
+                    typecast(-0.0, 'uint64'), "float64 token " + tok);
+                meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float32", tok));
+                tc.verifyClass(meta.fillValue, 'single');
+                tc.verifyEqual(typecast(meta.fillValue, 'uint32'), ...
+                    typecast(-single(0), 'uint32'), "float32 token " + tok);
+            end
+            % a positive zero must not acquire a sign
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, "float64", "0.0"));
+            tc.verifyEqual(typecast(meta.fillValue, 'uint64'), uint64(0));
         end
 
         function dimensionNamesWithNull(tc)
@@ -118,6 +143,67 @@ classdef TestMetadata < matlab.unittest.TestCase
             m2 = tc.roundTrip(meta);
             tc.verifyEqual(m2.dimensionNames(1), "time");
             tc.verifyTrue(ismissing(m2.dimensionNames(2)));
+        end
+
+        function emptyDimensionNameIsNotNull(tc)
+            meta = zarr.metadata.ArrayMetadata();
+            meta.shape = [2 3 4];
+            meta.dataType = "int8";
+            meta.chunkShape = [2 3 4];
+            meta.fillValue = int8(0);
+            meta.codecs = {zarr.codecs.BytesCodec()};
+            meta.dimensionNames = ["" missing "x"];
+            m2 = tc.roundTrip(meta);
+            tc.verifyEqual(m2.dimensionNames(1), "");
+            tc.verifyTrue(ismissing(m2.dimensionNames(2)));
+            tc.verifyEqual(m2.dimensionNames(3), "x");
+            tc.verifySubstring(char(m2.toJsonText()), '"dimension_names":["",null,"x"]');
+        end
+
+        function rejectsNonStringDimensionName(tc)
+            % A number or boolean in dimension_names is neither a name nor
+            % null, so parsing must fail rather than read it back as null.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2,3],' ...
+                '"data_type":"int8",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2,3]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":0,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}],' ...
+                '"dimension_names":%s}'];
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x",5]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '[true,"y"]')), "zarr:InvalidMetadata");
+            % Both spellings of null that jsondecode produces still read as
+            % missing: [] in a mixed list, NaN in an all-null list.
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '["",null]'));
+            tc.verifyEqual(meta.dimensionNames(1), "");
+            tc.verifyTrue(ismissing(meta.dimensionNames(2)));
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '[null,null]'));
+            tc.verifyTrue(all(ismissing(meta.dimensionNames)));
+        end
+
+        function rejectsDimensionNamesOfWrongLength(tc)
+            % dimension_names must have one entry per dimension of shape.
+            base = ['{"zarr_format":3,"node_type":"array","shape":[2,3],' ...
+                '"data_type":"int8",' ...
+                '"chunk_grid":{"name":"regular","configuration":{"chunk_shape":[2,3]}},' ...
+                '"chunk_key_encoding":{"name":"default"},' ...
+                '"fill_value":0,' ...
+                '"codecs":[{"name":"bytes","configuration":{"endian":"little"}}],' ...
+                '"dimension_names":%s}'];
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x"]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '["x","y","z"]')), "zarr:InvalidMetadata");
+            tc.verifyError(@() zarr.metadata.ArrayMetadata.fromJsonText( ...
+                sprintf(base, '[null,null,null]')), "zarr:InvalidMetadata");
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '["x","y"]'));
+            tc.verifyEqual(meta.dimensionNames, ["x" "y"]);
+            % An empty list reads as "no names": jsondecode returns the same
+            % value for [] and null, so the two cannot be told apart.
+            meta = zarr.metadata.ArrayMetadata.fromJsonText(sprintf(base, '[]'));
+            tc.verifyEmpty(meta.dimensionNames);
         end
 
         function singletonShapeStaysList(tc)
@@ -159,6 +245,18 @@ classdef TestMetadata < matlab.unittest.TestCase
             gm2 = zarr.metadata.GroupMetadata.fromJsonText(gm.toJsonText());
             tc.verifyEqual(gm2.attributes{"a"}, 1);
             tc.verifyEqual(gm2.attributes{"b"}, "text");
+        end
+
+        function emptyConsolidatedBlockIsConsolidated(tc)
+            % "metadata":{} states that a consolidated group has no children,
+            % which differs from a group with no consolidated metadata.
+            withBlock = zarr.metadata.GroupMetadata.fromJsonText( ...
+                ['{"zarr_format":3,"node_type":"group","consolidated_metadata":' ...
+                '{"kind":"inline","must_understand":false,"metadata":{}}}']);
+            withoutBlock = zarr.metadata.GroupMetadata.fromJsonText( ...
+                '{"zarr_format":3,"node_type":"group"}');
+            tc.verifyTrue(withBlock.isConsolidated());
+            tc.verifyFalse(withoutBlock.isConsolidated());
         end
 
         function datetimeDtypeRoundTrip(tc)

@@ -61,49 +61,49 @@ classdef ArrayMetadata
 
             info = zarr.internal.dtype_info(m.data_type);
             obj.dataTypeConfig = info.config;
-            obj.fillValue = zarr.internal.decode_fill_value(m.fill_value, info);
-            if (info.matlabClass == "int64" || info.matlabClass == "uint64") ...
-                    && ~info.isVlen && isnumeric(m.fill_value) ...
-                    && isscalar(m.fill_value) && abs(m.fill_value) >= 2^53
-                % jsondecode went through double and may have lost precision
-                % beyond 2^53 (values below that are exact, so skip the
-                % re-scan); re-extract the exact token. A regex over the
-                % whole document could match a same-named key nested inside
-                % "attributes", so tokenize top-level keys instead.
-                [topKeys, topVals] = zarr.internal.json_object_entries(txt);
-                idx = find(topKeys == "fill_value", 1);
-                if ~isempty(idx)
-                    tok = char(topVals(idx));
-                    % Only pure integer literals parse exactly; other numeric
-                    % spellings (1e18, 9.1e15) keep the decoded value rather
-                    % than turning a readable file into a hard error.
-                    if ~isempty(regexp(tok, '^-?\d+$', 'once'))
-                        obj.fillValue = zarr.internal.parse_int64_token(tok, ...
-                            info.matlabClass == "int64");
-                    end
-                end
+
+            % The fill value and the attributes are decoded from their source
+            % text, which keeps what jsondecode loses (see
+            % zarr.internal.decode_fill_value). A regex over the whole
+            % document could match a same-named key nested inside
+            % "attributes", so tokenize the top-level keys instead.
+            [topKeys, topVals] = zarr.internal.json_object_entries(txt);
+            fillIdx = find(topKeys == "fill_value", 1);
+            if isempty(fillIdx)
+                error("zarr:InvalidMetadata", "Array metadata has no fill_value.");
             end
+            obj.fillValue = zarr.internal.decode_fill_value(topVals(fillIdx), info);
 
             entries = zarr.metadata.ArrayMetadata.asList(m.codecs);
             obj.codecs = cellfun(@zarr.codecs.from_config, entries, 'UniformOutput', false);
 
-            % Attribute keys are read from the source text: jsondecode
-            % renames any key that is not a valid MATLAB identifier.
-            [attrKeys, attrVals] = zarr.internal.json_object_entries(txt);
-            aIdx = find(attrKeys == "attributes", 1);
+            aIdx = find(topKeys == "attributes", 1);
             if ~isempty(aIdx)
-                obj.attributes = zarr.internal.json_decode_exact(attrVals(aIdx));
+                obj.attributes = zarr.internal.json_decode_exact(topVals(aIdx));
             end
 
             if isfield(m, 'dimension_names') && ~isempty(m.dimension_names)
                 names = zarr.metadata.ArrayMetadata.asList(m.dimension_names);
                 dn = strings(1, numel(names));
+                % jsondecode returns a name as char ('' for ""), and null as
+                % [] or NaN. A number or boolean decodes to a double or
+                % logical; mapping it to null would rewrite the file with
+                % different metadata on the next write, so it is an error.
                 for i = 1:numel(names)
-                    if isempty(names{i})
+                    entry = names{i};
+                    if ischar(entry)
+                        dn(i) = string(entry);
+                    elseif isnumeric(entry) && (isempty(entry) || (isscalar(entry) && isnan(entry)))
                         dn(i) = missing;
                     else
-                        dn(i) = string(names{i});
+                        error("zarr:InvalidMetadata", ...
+                            "dimension_names entry %d must be a string or null.", i);
                     end
+                end
+                if numel(dn) ~= numel(obj.shape)
+                    error("zarr:InvalidMetadata", ...
+                        "dimension_names must have one entry per dimension: " + ...
+                        "expected %d, found %d.", numel(obj.shape), numel(dn));
                 end
                 obj.dimensionNames = dn;
             end
@@ -137,11 +137,14 @@ classdef ArrayMetadata
             parts(end + 1) = """zarr_format"":3";
             parts(end + 1) = """node_type"":""array""";
             parts(end + 1) = """shape"":" + jsonIntList(obj.shape);
-            if isempty(obj.dataTypeConfig)
+            % Encode the configuration as dtype_info returns it, where a
+            % structured type's fields list is a cell and so is always
+            % written as a JSON list.
+            if isempty(info.config)
                 parts(end + 1) = """data_type"":""" + obj.dataType + """";
             else
                 parts(end + 1) = """data_type"":{""name"":""" + obj.dataType + ...
-                    """,""configuration"":" + string(jsonencode(obj.dataTypeConfig)) + "}";
+                    """,""configuration"":" + string(jsonencode(info.config)) + "}";
             end
             parts(end + 1) = """chunk_grid"":{""name"":""regular"",""configuration"":{""chunk_shape"":" + ...
                 jsonIntList(obj.chunkShape) + "}}";

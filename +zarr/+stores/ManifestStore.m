@@ -15,7 +15,11 @@ classdef ManifestStore < zarr.stores.Store
     %       "a/c/0/1": {"inline": "<base64>"}
     %     }
     %   }
-    %   Paths are relative to the index root (absolute paths/URLs allowed).
+    %   A path is a file path relative to the index root, written without
+    %   URL encoding even when the index is served over HTTP(S). An absolute
+    %   filesystem path or an http(s) URL is accepted too. A URL is
+    %   requested exactly as written, so it must be percent-encoded, and it
+    %   may carry a query string, as a presigned S3 URL does.
 
     properties (SetAccess = immutable)
         root (1,1) string
@@ -25,7 +29,6 @@ classdef ManifestStore < zarr.stores.Store
         metaStore                % LocalStore/HttpStore over the index dir
         chunkMap                 % containers.Map: key -> entry struct
         defaultPath (1,1) string = ""
-        httpCache                % containers.Map: base url -> HttpStore
         isHttp (1,1) logical
     end
 
@@ -38,7 +41,6 @@ classdef ManifestStore < zarr.stores.Store
             else
                 obj.metaStore = zarr.stores.LocalStore(obj.root);
             end
-            obj.httpCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             [bytes, found] = obj.metaStore.get("manifest.json");
             if ~found
@@ -153,18 +155,19 @@ classdef ManifestStore < zarr.stores.Store
             end
             base = double(entry.offset);
             n = min(len, double(entry.length) - offset);
+            isAbsoluteUrl = startsWith(target, "http://") || startsWith(target, "https://");
+            if obj.isHttp && ~isAbsoluteUrl
+                % A relative path names a file beside the index the way a store
+                % key does, so it is encoded the same way before it joins the
+                % index URL.
+                target = zarr.internal.encode_url_path(target);
+            end
             resolved = zarr.internal.resolve_relative(obj.root, target);
             if startsWith(resolved, "http://") || startsWith(resolved, "https://")
-                slash = find(char(resolved) == '/', 1, 'last');
-                dirUrl = extractBefore(resolved, slash);
-                name = extractAfter(resolved, slash);
-                if obj.httpCache.isKey(char(dirUrl))
-                    hs = obj.httpCache(char(dirUrl));
-                else
-                    hs = zarr.stores.HttpStore(dirUrl);
-                    obj.httpCache(char(dirUrl)) = hs;
-                end
-                [data, found] = hs.getPartial(name, base + offset, n);
+                % The URL is now fully encoded: an absolute one came that way
+                % from the manifest, possibly with a query string. So it is
+                % requested exactly as written.
+                [data, found] = zarr.internal.http_read_range(resolved, base + offset, n);
             else
                 fid = fopen(resolved, 'r');
                 found = fid ~= -1;

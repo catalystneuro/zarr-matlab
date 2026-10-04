@@ -1,7 +1,7 @@
 function bytes = encode_structured(records, info, endian)
 %ENCODE_STRUCTURED Encode n "structured" (compound record) elements as raw bytes.
 %   records is an n-by-1 (or 1-by-n) struct array with one field per
-%   info.fields entry (info.fields(k).Name).
+%   info.fields entry (info.fields(k).MatlabName).
 %
 %   Encodes one field at a time across all n records (via
 %   zarr.internal.encode_scalar_field), rather than looping record by
@@ -27,7 +27,7 @@ function bytes = encode_structured(records, info, endian)
     b = zeros(info.itemsize, n, 'uint8');
     for k = 1:numel(info.fields)
         f = info.fields(k);
-        values = reshape([records.(f.Name)], n, 1);
+        values = reshape([records.(f.MatlabName)], n, 1);
         b(f.Offset + 1 : f.Offset + f.Info.itemsize, :) = zarr.internal.encode_scalar_field(values, f.Info, n, endian);
     end
     bytes = reshape(b, 1, []);
