@@ -50,17 +50,51 @@ classdef TestHttpStore < matlab.unittest.TestCase
             % The server binds port 0, so the OS assigns a port that is free
             % for this run, and prints that port to stdout, which goes to
             % portFile.
-            serverCode = "import functools, http.server, socketserver, sys; " + ...
-                "handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1]); " + ...
-                "server = socketserver.ThreadingTCPServer(('127.0.0.1', 0), handler); " + ...
-                "print(server.server_address[1], flush=True); " + ...
-                "server.serve_forever()";
+            % Paths under /range/<mode>/ answer a Range request the way one
+            % kind of server does (see rangeModes); every other path is served
+            % by SimpleHTTPRequestHandler, which ignores the Range header.
+            serverScript = fullfile(tc.root, "server.py");
+            writelines([
+                "import http.server, os, socketserver, sys"
+                "ROOT = sys.argv[1]"
+                "PREFIX = '/range/'"
+                "class Handler(http.server.SimpleHTTPRequestHandler):"
+                "    def __init__(self, *args, **kwargs):"
+                "        super().__init__(*args, directory=ROOT, **kwargs)"
+                "    def do_GET(self):"
+                "        if not self.path.startswith(PREFIX):"
+                "            return super().do_GET()"
+                "        mode, _, key = self.path[len(PREFIX):].partition('/')"
+                "        try:"
+                "            with open(os.path.join(ROOT, key), 'rb') as f:"
+                "                body = f.read()"
+                "        except OSError:"
+                "            return self.send_error(404)"
+                "        first, _, last = self.headers['Range'].replace('bytes=', '').partition('-')"
+                "        first, last = int(first), min(int(last), len(body) - 1)"
+                "        if mode in ('startonly', 'startonly-noheader'):"
+                "            last = len(body) - 1"
+                "        if mode == 'early':"
+                "            first = max(first - 3, 0)"
+                "        if mode == 'late':"
+                "            first = first + 1"
+                "        part = body[first:last + 1]"
+                "        self.send_response(500 if mode == 'error' else 206)"
+                "        if not mode.endswith('noheader'):"
+                "            self.send_header('Content-Range', 'bytes %d-%d/%d' % (first, last, len(body)))"
+                "        self.send_header('Content-Length', str(len(part)))"
+                "        self.end_headers()"
+                "        self.wfile.write(part)"
+                "server = socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler)"
+                "print(server.server_address[1], flush=True)"
+                "server.serve_forever()"
+                ], serverScript);
             portFile = fullfile(tc.root, "port");
             % The handler logs each request line to stderr, which goes to
             % requestLog, so a test can see exactly what reached the server.
             tc.requestLog = fullfile(tc.root, "requests.log");
-            cmd = sprintf('"%s" -c "%s" "%s" >"%s" 2>"%s" & echo $!', ...
-                tc.python, serverCode, tc.servedRoot, portFile, tc.requestLog);
+            cmd = sprintf('"%s" "%s" "%s" >"%s" 2>"%s" & echo $!', ...
+                tc.python, serverScript, tc.servedRoot, portFile, tc.requestLog);
             [~, pidStr] = system(cmd);
             tc.proc = strtrim(pidStr);
 
@@ -203,6 +237,72 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 z = zarr.open(zarr.stores.ManifestStore(indexUrl));
                 tc.verifyEqual(z(:), d, "path: ../" + name);
             end
+        end
+
+        function rangeReadTakesRequestedBytesFromResponse(tc)
+            % Servers differ in what they send for a Range request. The
+            % status and Content-Range say which bytes arrived.
+            bytes = uint8(mod(0:199, 251));
+            writeBytes(fullfile(tc.servedRoot, "blob.bin"), bytes);
+            modes = [
+                "honor"               % 206 with the requested range
+                "noheader"            % 206 with the requested range, no Content-Range
+                "startonly"           % 206 from the offset to the end of the object
+                "startonly-noheader"  % the same, with no Content-Range
+                "early"               % 206 starting 3 bytes before the offset
+                ];
+            ranges = [0 10; 20 10; 50 60; 190 10; 199 1];
+            for mode = modes'
+                url = sprintf("http://127.0.0.1:%d/range/%s/blob.bin", tc.port, mode);
+                for r = 1:size(ranges, 1)
+                    offset = ranges(r, 1);
+                    len = ranges(r, 2);
+                    [data, found] = zarr.internal.http_read_range(url, offset, len);
+                    label = sprintf("%s: %d bytes at %d", mode, len, offset);
+                    tc.verifyTrue(found, label);
+                    tc.verifyEqual(data, bytes(offset + 1:offset + len), label);
+                end
+            end
+            % A server that ignores the Range header sends the whole object.
+            url = sprintf("http://127.0.0.1:%d/blob.bin", tc.port);
+            for r = 1:size(ranges, 1)
+                offset = ranges(r, 1);
+                len = ranges(r, 2);
+                [data, found] = zarr.internal.http_read_range(url, offset, len);
+                tc.verifyTrue(found);
+                tc.verifyEqual(data, bytes(offset + 1:offset + len));
+            end
+        end
+
+        function rangeReadPastTheEndIsShort(tc)
+            bytes = uint8(1:50);
+            writeBytes(fullfile(tc.servedRoot, "short.bin"), bytes);
+            for target = ["/range/honor/short.bin", "/range/startonly/short.bin", "/short.bin"]
+                url = sprintf("http://127.0.0.1:%d%s", tc.port, target);
+                [data, found] = zarr.internal.http_read_range(url, 40, 20);
+                tc.verifyTrue(found, target);
+                tc.verifyEqual(data, bytes(41:50), target);
+            end
+        end
+
+        function rangeReadOfMissingObjectIsNotFound(tc)
+            for target = ["/range/honor/nope.bin", "/nope.bin"]
+                url = sprintf("http://127.0.0.1:%d%s", tc.port, target);
+                [data, found] = zarr.internal.http_read_range(url, 0, 10);
+                tc.verifyFalse(found, target);
+                tc.verifyEmpty(data, target);
+            end
+        end
+
+        function rangeReadErrorsWhenRequestedBytesAreNotSent(tc)
+            writeBytes(fullfile(tc.servedRoot, "blob2.bin"), uint8(1:100));
+            base = sprintf("http://127.0.0.1:%d/range/", tc.port);
+            % The body starts after the requested offset.
+            tc.verifyError(@() zarr.internal.http_read_range(base + "late/blob2.bin", 10, 10), ...
+                "zarr:StoreError");
+            % A status that is neither success nor "not found".
+            tc.verifyError(@() zarr.internal.http_read_range(base + "error/blob2.bin", 10, 10), ...
+                "zarr:StoreError");
         end
 
         function readOnlyEnforced(tc)
