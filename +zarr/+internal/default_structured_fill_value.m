@@ -14,6 +14,6 @@ function fv = default_structured_fill_value(info)
     fv = struct();
     for k = 1:numel(info.fields)
         f = info.fields(k);
-        fv.(f.Name) = zarr.internal.default_scalar_fill_value(f.Info);
+        fv.(f.MatlabName) = zarr.internal.default_scalar_fill_value(f.Info);
     end
 end

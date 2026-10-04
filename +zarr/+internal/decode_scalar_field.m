@@ -20,7 +20,7 @@ function values = decode_scalar_field(fieldBytes, fieldInfo, n, endian)
         endian (1,1) string {mustBeMember(endian, ["little", "big"])} = "little"
     end
 
-    if fieldInfo.zarrType == "structured"
+    if fieldInfo.isStructured
         values = zarr.internal.decode_structured(reshape(fieldBytes, 1, []), fieldInfo, n, endian);
         return
     end

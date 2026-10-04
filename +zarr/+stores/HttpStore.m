@@ -20,23 +20,15 @@ classdef HttpStore < zarr.stores.Store
         end
 
         function [data, found] = get(obj, key)
-            [data, found] = obj.fetch(key, []);
+            [data, found] = zarr.internal.http_get(obj.keyUrl(key), []);
         end
 
         function [data, found] = getPartial(obj, key, offset, len)
-            [data, found] = obj.fetch(key, sprintf('bytes=%d-%d', offset, offset + len - 1));
-            if ~found
-                return
-            end
-            if numel(data) > len
-                % Server ignored the Range header and sent the whole object.
-                first = offset + 1;
-                data = data(first:min(offset + len, numel(data)));
-            end
+            [data, found] = zarr.internal.http_read_range(obj.keyUrl(key), offset, len);
         end
 
         function [data, found] = getSuffix(obj, key, len)
-            [data, found] = obj.fetch(key, sprintf('bytes=-%d', len));
+            [data, found] = zarr.internal.http_get(obj.keyUrl(key), sprintf('bytes=-%d', len));
             if ~found
                 return
             end
@@ -69,31 +61,10 @@ classdef HttpStore < zarr.stores.Store
     end
 
     methods (Access = private)
-        function [data, found] = fetch(obj, key, rangeHeader)
-            % Percent-encode characters that would change URL semantics
-            % ('#' starts a fragment; .mat-derived stores use '#refs#').
-            key = strrep(strrep(strrep(string(key), "%", "%25"), "#", "%23"), " ", "%20");
-            url = obj.baseUrl + "/" + key;
-            headers = {};
-            if ~isempty(rangeHeader)
-                headers = {'Range', rangeHeader};
-            end
-            opts = weboptions('ContentType', 'binary', 'Timeout', 30);
-            if ~isempty(headers)
-                opts.HeaderFields = headers;
-            end
-            try
-                data = reshape(webread(url, opts), 1, []);
-                data = uint8(data);
-                found = true;
-            catch err
-                if contains(err.identifier, "404") || contains(err.identifier, "403")
-                    data = uint8([]);
-                    found = false;
-                else
-                    rethrow(err);
-                end
-            end
+        function url = keyUrl(obj, key)
+            % Keys can hold characters that change what a URL names, such as
+            % the '#' in the '#refs#' keys of .mat-derived stores.
+            url = obj.baseUrl + "/" + zarr.internal.encode_url_path(key);
         end
     end
 end

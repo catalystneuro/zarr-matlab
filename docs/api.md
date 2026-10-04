@@ -22,7 +22,10 @@ z = zarr.create(store, shape, dtype, Name=Value...)
 Create an array (see [Arrays](user-guide/arrays.md) for the full option
 table). `shape` is the Zarr shape: `[m n ...]`, a scalar `n` (rank-1), or
 `[]` (rank-0). `dtype` accepts MATLAB class names, Zarr names, `"string"`,
-`"bytes"`, or `"datetime64[<unit>]"` / `"timedelta64[<unit>]"`.
+`"bytes"`, or `"datetime64[<unit>]"` / `"timedelta64[<unit>]"`. A data type
+that needs a configuration, `struct` or `fixed_length_utf32`, is passed as a
+struct with fields `name` and `configuration`; see
+[Structured records](user-guide/data-types.md#structured-records).
 
 Options: `Path`, `ChunkShape`, `ShardShape`, `IndexLocation`, `Codecs`,
 `FillValue`, `Attributes`, `DimensionNames`, `Order`, `ChunkKeyEncoding`,

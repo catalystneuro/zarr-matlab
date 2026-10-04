@@ -15,14 +15,23 @@ classdef TestPythonInterop < matlab.unittest.TestCase
             tc.python = "";
             for c = candidates
                 if strlength(c) == 0, continue; end
-                [status, ~] = system("""" + c + """ -c ""import zarr,sys; sys.exit(0 if zarr.__version__ >= '3' else 1)""");
+                % zarr-python renamed the structured data type to "struct"
+                % in 3.3 and changed its fields configuration, so an older
+                % interpreter would write the legacy form and let these
+                % tests pass against the very shape they exist to pin. The
+                % version is compared numerically because "3.10" sorts
+                % before "3.4" as text.
+                probe = "import re,zarr,sys; sys.exit(0 if tuple(" + ...
+                    "int(n) for n in re.findall(r'[0-9]+', zarr.__version__)[:2]" + ...
+                    ") >= (3,4) else 1)";
+                [status, ~] = system("""" + c + """ -c """ + probe + """");
                 if status == 0
                     tc.python = c;
                     break
                 end
             end
             tc.assumeTrue(strlength(tc.python) > 0, ...
-                'zarr-python >= 3 not found; skipping interop tests');
+                'zarr-python >= 3.4 not found; skipping interop tests');
         end
     end
 
