@@ -5,6 +5,11 @@ function codecs = complete_codecs(codecs, info)
 %   supplied none.
 
 codecs = reshape(codecs, 1, []);
+if ~isempty(zarr.internal.find_unsupported_codec(codecs))
+    % The kind of an unsupported codec is unknown, so whether the chain
+    % already has a serializer cannot be decided; it is kept as written.
+    return
+end
 kinds = strings(1, numel(codecs));
 for i = 1:numel(codecs)
     kinds(i) = codecs{i}.kind;

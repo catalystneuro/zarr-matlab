@@ -1,6 +1,9 @@
 function codec = from_config(entry)
 %FROM_CONFIG Build a codec object from a decoded metadata entry.
-%   entry is a struct with field 'name' and optional 'configuration'.
+%   entry is a struct with field 'name' and optional 'configuration'. A
+%   codec zarr-matlab does not implement is returned as a
+%   zarr.codecs.UnsupportedCodec, which raises zarr:UnsupportedCodec only
+%   when a pipeline is built from it.
 
 name = string(entry.name);
 if isfield(entry, 'configuration') && ~isempty(entry.configuration)
@@ -33,6 +36,6 @@ switch name
     case "numcodecs.shuffle"
         codec = zarr.codecs.ShuffleCodec.fromConfig(cfg);
     otherwise
-        error("zarr:UnsupportedCodec", "Unsupported codec '%s'.", name);
+        codec = zarr.codecs.UnsupportedCodec(name, string(jsonencode(entry)));
 end
 end
