@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="zarr-matlab logo">
+  <defs>
+    <linearGradient id="zg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E8710A"/>
+      <stop offset="0.5" stop-color="#C4553D"/>
+      <stop offset="1" stop-color="#1A5FB4"/>
+    </linearGradient>
+  </defs>
+  <!-- background chunks: the rest of the array -->
+  <g fill="#8E8E93" opacity="0.22">
+    <rect x="4"   y="36" width="26" height="26" rx="6"/>
+    <rect x="36"  y="36" width="26" height="26" rx="6"/>
+    <rect x="100" y="36" width="26" height="26" rx="6"/>
+    <rect x="4"   y="68" width="26" height="26" rx="6"/>
+    <rect x="68"  y="68" width="26" height="26" rx="6"/>
+    <rect x="100" y="68" width="26" height="26" rx="6"/>
+  </g>
+  <!-- Z chunks -->
+  <g fill="url(#zg)">
+    <rect x="4"   y="4"   width="26" height="26" rx="6"/>
+    <rect x="36"  y="4"   width="26" height="26" rx="6"/>
+    <rect x="68"  y="4"   width="26" height="26" rx="6"/>
+    <rect x="100" y="4"   width="26" height="26" rx="6"/>
+    <rect x="68"  y="36"  width="26" height="26" rx="6"/>
+    <rect x="36"  y="68"  width="26" height="26" rx="6"/>
+    <rect x="4"   y="100" width="26" height="26" rx="6"/>
+    <rect x="36"  y="100" width="26" height="26" rx="6"/>
+    <rect x="68"  y="100" width="26" height="26" rx="6"/>
+    <rect x="100" y="100" width="26" height="26" rx="6"/>
+  </g>
+</svg>
