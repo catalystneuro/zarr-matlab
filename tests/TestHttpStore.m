@@ -155,7 +155,8 @@ classdef TestHttpStore < matlab.unittest.TestCase
             try
                 zarr.internal.http_get_parallel(url, 1, [0 1]);
                 tf = true;
-            catch
+            catch probeError
+                fprintf("PROBE-ERROR: %s\n", getReport(probeError, 'extended', 'hyperlinks', 'off'));
                 tf = false;
             end
         end
