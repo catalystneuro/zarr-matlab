@@ -26,6 +26,21 @@ classdef (Abstract) Store < handle
             end
         end
 
+        function [values, found] = getPartialMany(obj, keys, offsets, lens)
+            %GETPARTIALMANY Byte-range reads of several values: one getPartial per key, in order.
+            %   [values, found] = getPartialMany(obj, keys, offsets, lens)
+            %   reads lens(i) bytes at the 0-based offsets(i) of keys(i), and
+            %   returns a cell row of values and a logical row, one entry per
+            %   key. Stores that can read ranges concurrently override it
+            %   (see zarr.stores.HttpStore).
+            keys = reshape(string(keys), 1, []);
+            values = cell(1, numel(keys));
+            found = false(1, numel(keys));
+            for i = 1:numel(keys)
+                [values{i}, found(i)] = obj.getPartial(keys(i), offsets(i), lens(i));
+            end
+        end
+
         function [data, found] = getPartial(obj, key, offset, len)
             %GETPARTIAL Byte-range read: len bytes starting at 0-based offset.
             %   Default falls back to a full read; subclasses override with a

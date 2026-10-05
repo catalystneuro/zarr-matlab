@@ -39,6 +39,9 @@ classdef TestHttpStore < matlab.unittest.TestCase
             zs = zarr.create(ls, [8 8], "int32", Path="s", ChunkShape=[2 2], ...
                 ShardShape=[8 8]);
             zs.write(reshape(int32(1:64), [8 8]));
+            % Uncompressed, 4 x 4 chunks: a region is read in part, chunk by chunk.
+            zarr.create(ls, [12 8], "int16", Path="u", ChunkShape=[3 2]).write( ...
+                reshape(int16(1:96), [12 8]));
             zarr.create_group(ls, Path="empty");
             zarr.consolidate_metadata(ls);
 
@@ -70,6 +73,9 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 "                body = f.read()"
                 "        except OSError:"
                 "            return self.send_error(404)"
+                "        if 'Range' not in self.headers:"
+                "            self.path = '/' + key"
+                "            return super().do_GET()"
                 "        first, _, last = self.headers['Range'].replace('bytes=', '').partition('-')"
                 "        first, last = int(first), min(int(last), len(body) - 1)"
                 "        if mode in ('startonly', 'startonly-noheader'):"
@@ -173,6 +179,50 @@ classdef TestHttpStore < matlab.unittest.TestCase
             store.MaxConcurrentRequests = 8;
             store.ParallelThreshold = Inf;
             tc.verifyEqual(a.read(), expected);
+        end
+
+        function partialReadsSpanningChunksFetchConcurrently(tc)
+            % Row 5 of "u" crosses four chunks and covers part of each, so it
+            % is four ranged reads, which meets the default ParallelThreshold.
+            % Reading them concurrently, in turn, or one request at a time
+            % must give the same data. /range/honor/ answers 206; the plain
+            % path ignores the Range header and sends each chunk whole.
+            expected = reshape(int16(1:96), [12 8]);
+            for base = ["/range/honor", ""]
+                store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d%s", tc.port, base));
+                u = zarr.open(store, Path="u");
+                tc.verifyEqual(tc.verifyWarningFree(@() u.read([5 1], [1 8])), expected(5, :), base);
+                tc.verifyEqual(u(5, 2:7), expected(5, 2:7), base);
+                tc.verifyEqual(u(2:11, 3), expected(2:11, 3), base);
+
+                store.MaxConcurrentRequests = 1;
+                tc.verifyEqual(u.read([5 1], [1 8]), expected(5, :), base);
+
+                store.MaxConcurrentRequests = 8;
+                store.ParallelThreshold = Inf;
+                tc.verifyEqual(u.read([5 1], [1 8]), expected(5, :), base);
+            end
+        end
+
+        function getPartialManyKeepsOrderAndReportsAbsentKeys(tc)
+            bytes = uint8(mod(0:199, 251));
+            writeBytes(fullfile(tc.servedRoot, "many.bin"), bytes);
+            keys = ["many.bin", "missing/key", "many.bin", "many.bin", "many.bin"];
+            offsets = [150 0 0 20 199];
+            lens = [10 5 30 1 1];
+            for base = ["/range/honor", "/range/startonly", ""]
+                store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d%s", tc.port, base));
+                store.ParallelThreshold = 2;
+
+                [values, found] = tc.verifyWarningFree(@() store.getPartialMany(keys, offsets, lens));
+
+                tc.verifyEqual(found, [true false true true true], base);
+                for i = find(found)
+                    tc.verifyEqual(values{i}, bytes(offsets(i) + 1:offsets(i) + lens(i)), ...
+                        sprintf("%s key %d", base, i));
+                end
+                tc.verifyEmpty(values{2}, base);
+            end
         end
 
         function getManyKeepsOrderAndReportsAbsentKeys(tc)

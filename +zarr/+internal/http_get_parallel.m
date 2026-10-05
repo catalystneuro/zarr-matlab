@@ -1,4 +1,4 @@
-function [values, found] = http_get_parallel(urls, maxConcurrent)
+function [values, found] = http_get_parallel(urls, maxConcurrent, ranges)
 %HTTP_GET_PARALLEL Fetch URLs concurrently on the thread workers of backgroundPool.
 %   [values, found] = http_get_parallel(urls, maxConcurrent) fetches each URL
 %   with zarr.internal.http_get and returns, in the order of urls, a cell row
@@ -6,10 +6,15 @@ function [values, found] = http_get_parallel(urls, maxConcurrent)
 %   403). The URLs are dealt round-robin into at most maxConcurrent tasks,
 %   each fetching its share in turn, so at most maxConcurrent requests are in
 %   flight. An error in any task cancels the others and is raised.
+%
+%   http_get_parallel(urls, maxConcurrent, ranges) reads a byte range of
+%   each URL with zarr.internal.http_read_range instead. Row i of ranges is
+%   the 0-based offset and the length to read from urls(i).
 
 arguments
     urls (1,:) string
     maxConcurrent (1,1) double {mustBeInteger, mustBePositive}
+    ranges (:,2) double = zeros(0, 2)
 end
 
 numUrls = numel(urls);
@@ -24,7 +29,11 @@ taskOf = mod(0:numUrls - 1, numTasks) + 1;
 pool = backgroundPool;
 futures = cell(1, numTasks);
 for task = 1:numTasks
-    futures{task} = parfeval(pool, @fetchInTurn, 2, urls(taskOf == task));
+    taskRanges = zeros(0, 2);
+    if ~isempty(ranges)
+        taskRanges = ranges(taskOf == task, :);
+    end
+    futures{task} = parfeval(pool, @fetchInTurn, 2, urls(taskOf == task), taskRanges);
 end
 
 try
@@ -43,10 +52,14 @@ catch taskError
 end
 end
 
-function [values, found] = fetchInTurn(urls)
+function [values, found] = fetchInTurn(urls, ranges)
 values = cell(1, numel(urls));
 found = false(1, numel(urls));
 for i = 1:numel(urls)
-    [values{i}, found(i)] = zarr.internal.http_get(urls(i), []);
+    if isempty(ranges)
+        [values{i}, found(i)] = zarr.internal.http_get(urls(i), []);
+    else
+        [values{i}, found(i)] = zarr.internal.http_read_range(urls(i), ranges(i, 1), ranges(i, 2));
+    end
 end
 end
