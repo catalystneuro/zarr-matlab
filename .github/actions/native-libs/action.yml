@@ -12,9 +12,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Cache static libraries
+    - name: Restore static libraries
       id: libcache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: native
         key: native-${{ runner.os }}-${{ runner.arch }}-${{ inputs.zstd-tag }}-${{ inputs.blosc-tag }}-v2
@@ -37,3 +37,12 @@ runs:
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_INSTALL_PREFIX="$PWD/native"
         cmake --build ../blosc-build --config Release -j4
         cmake --install ../blosc-build --config Release
+
+    # Every ref can restore a cache saved on main; a cache saved on any other
+    # ref is visible to that ref alone.
+    - name: Save static libraries
+      if: steps.libcache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@v4
+      with:
+        path: native
+        key: ${{ steps.libcache.outputs.cache-primary-key }}
