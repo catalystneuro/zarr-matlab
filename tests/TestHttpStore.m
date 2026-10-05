@@ -151,12 +151,11 @@ classdef TestHttpStore < matlab.unittest.TestCase
         function tf = threadsCanReadRanges(tc)
             %THREADSCANREADRANGES Whether a thread worker of backgroundPool
             %   can make a ranged request in this MATLAB release.
-            url = sprintf("http://127.0.0.1:%d/zarr.json", tc.port);
+            url = sprintf("http://127.0.0.1:%d/u/c/0/0", tc.port);
             try
                 zarr.internal.http_get_parallel(url, 1, [0 1]);
                 tf = true;
-            catch probeError
-                fprintf("PROBE-ERROR: %s\n", getReport(probeError, 'extended', 'hyperlinks', 'off'));
+            catch
                 tf = false;
             end
         end
