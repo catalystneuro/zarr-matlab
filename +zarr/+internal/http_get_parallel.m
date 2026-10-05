@@ -45,8 +45,9 @@ try
 catch taskError
     cellfun(@cancel, futures);
     if ~isempty(taskError.cause)
-        % fetchOutputs wraps the task's own error; raise that one.
-        rethrow(taskError.cause{1})
+        % fetchOutputs wraps the task's own error; raise that one. It was
+        % caught on the worker, not here, so it is thrown, not rethrown.
+        throw(taskError.cause{1})
     end
     rethrow(taskError)
 end
