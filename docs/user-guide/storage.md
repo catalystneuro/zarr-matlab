@@ -52,7 +52,8 @@ zr.close();
 
 `HttpStore` reads Zarr data from any web server, object-store HTTP endpoint,
 or CDN. When the server honors `Range` requests (S3, nginx, …), sharded
-arrays fetch only the byte ranges they need.
+arrays and arrays with uncompressed chunks fetch only the byte ranges they
+need.
 
 ```text
 store = zarr.stores.HttpStore("https://example.com/data.zarr");
@@ -93,5 +94,5 @@ assert(~gc.store.exists("deep/nested/y/zarr.json"))
 
 Subclass `zarr.stores.Store` and implement `get`, `set`, `erase`, `exists`,
 `list`, and `listDir`; override `getPartial`/`getSuffix` with true ranged
-reads if the backend supports them (that is what makes sharded partial reads
-efficient). See `+zarr/+stores/HttpStore.m` for a compact example.
+reads if the backend supports them (that is what makes partial reads of
+shards and uncompressed chunks efficient). See `+zarr/+stores/HttpStore.m` for a compact example.

@@ -88,6 +88,18 @@ classdef Pipeline
             end
         end
 
+        function bc = soleBytes(obj)
+            %SOLEBYTES The BytesCodec if it is the entire chain and the data
+            %   type has a fixed size (uncompressed chunks can be read in
+            %   part), otherwise [].
+            if isscalar(obj.codecs) && isa(obj.codecs{1}, 'zarr.codecs.BytesCodec') ...
+                    && obj.info.itemsize > 0
+                bc = obj.codecs{1};
+            else
+                bc = [];
+            end
+        end
+
         function txt = toJson(obj)
             entries = strings(1, numel(obj.codecs));
             for i = 1:numel(obj.codecs)

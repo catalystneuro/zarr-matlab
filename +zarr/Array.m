@@ -86,9 +86,26 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
                 return
             end
 
-            % Chunks are fetched a batch at a time through getMany, which a
-            % store such as HttpStore serves with concurrent requests. The
-            % batch bounds how many encoded chunks are held at once.
+            % An uncompressed chunk that the region covers only part of is
+            % read in part, with one ranged request for the block it touches.
+            bc = obj.codecPipeline().soleBytes();
+            if ~isempty(bc)
+                whole = true(1, numel(parts));
+                for t = 1:numel(parts)
+                    p = parts(t);
+                    [offset, blockShape] = blockWindow(p.inStart, p.inCount, obj.meta.chunkShape);
+                    if prod(blockShape) < prod(obj.meta.chunkShape)
+                        out = obj.readBlock(bc, obj.chunkStoreKey(p.coords), p, offset, blockShape, out);
+                        whole(t) = false;
+                    end
+                end
+                parts = parts(whole);
+            end
+
+            % The other chunks are fetched whole, a batch at a time through
+            % getMany, which a store such as HttpStore serves with concurrent
+            % requests. The batch bounds how many encoded chunks are held at
+            % once.
             for first = 1:obj.ChunkBatchSize:numel(parts)
                 batch = parts(first:min(first + obj.ChunkBatchSize - 1, numel(parts)));
                 keys = strings(1, numel(batch));
@@ -475,6 +492,27 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             end
         end
 
+        function out = readBlock(obj, bc, key, p, offset, blockShape, out)
+            %READBLOCK Partial read of an uncompressed chunk: fetch only the
+            %   block of the chunk that the region touches, with a single
+            %   ranged request. offset is where the block starts in the chunk,
+            %   in items, and blockShape is its shape (see blockWindow).
+            itemsize = obj.info.itemsize;
+            [bytes, found] = obj.store.getPartial(key, offset * itemsize, ...
+                prod(blockShape) * itemsize);
+            if ~found
+                return  % missing chunk -> fill (already prefilled)
+            end
+            chunk = bc.decode(bytes, obj.info, blockShape, obj.meta.fillValue);
+            % Along each axis where the block is shorter than the chunk, it
+            % starts at the region's first index. The other axes are whole.
+            inStart = p.inStart;
+            inStart(blockShape < obj.meta.chunkShape) = 0;
+            src = subsFor(inStart, p.inCount);
+            dst = subsFor(p.outStart, p.inCount);
+            out(dst{:}) = chunk(src{:});
+        end
+
         function out = readFromShard(obj, sh, key, p, out)
             %READFROMSHARD Partial shard read: fetch the index, then only the
             %   inner chunks that intersect the requested region.
@@ -585,6 +623,28 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             coords = reshape(vals, 1, []);
         end
     end
+end
+
+function [offset, blockShape] = blockWindow(inStart, inCount, chunkShape)
+%BLOCKWINDOW The contiguous block of a C-order chunk that a region touches.
+%   Along the first axis the block spans the rows the region touches. If
+%   that is a single row, the block is narrowed in the same way along the
+%   next axis, and so on. The axes after that are whole.
+%
+%   offset is where the block starts in the chunk, in items. blockShape has
+%   as many axes as the chunk: length 1 along the axes with a single index,
+%   the region's count along the last narrowed axis, and the chunk's length
+%   along the rest. It equals chunkShape when the block is the whole chunk.
+R = numel(chunkShape);
+last = 1;  % the last axis the block is narrowed along
+while last < R && inCount(last) == 1
+    last = last + 1;
+end
+offset = 0;
+for axis = 1:last
+    offset = offset + inStart(axis) * prod(chunkShape(axis + 1:end));
+end
+blockShape = [ones(1, last - 1), inCount(last), reshape(chunkShape(last + 1:end), 1, [])];
 end
 
 function subs = subsFor(start0, count)
