@@ -162,6 +162,49 @@ classdef TestHttpStore < matlab.unittest.TestCase
         end
     end
 
+    methods
+        function [d, inlineKey] = serveManifest(tc, indexName, blobName, writeBlob)
+            %SERVEMANIFEST Serve a manifest index for an uncompressed [8 6]
+            %   int16 array with [2 3] chunks. Its chunks are byte ranges of
+            %   the file blobName beside the index, except inlineKey, which
+            %   is inline. writeBlob false leaves that file out.
+            if nargin < 4
+                writeBlob = true;
+            end
+            src = zarr.stores.MemoryStore();
+            d = reshape(int16(1:48), [8 6]);
+            zarr.create(src, [8 6], "int16", ChunkShape=[2 3]).write(d);
+            inlineKey = "c/0/0";
+            blob = uint8([]);
+            entries = strings(1, 0);
+            for i = 0:3
+                for j = 0:1
+                    key = sprintf("c/%d/%d", i, j);
+                    [chunk, ~] = src.get(key);
+                    if key == inlineKey
+                        entries(end + 1) = sprintf('"%s":{"inline":"%s"}', key, ...
+                            matlab.net.base64encode(chunk)); %#ok<AGROW>
+                    else
+                        % 5 bytes of padding, so offsets are not multiples of the chunk size.
+                        blob = [blob, uint8(200:204)]; %#ok<AGROW>
+                        entries(end + 1) = sprintf('"%s":{"path":"../%s","offset":%d,"length":%d}', ...
+                            key, blobName, numel(blob), numel(chunk)); %#ok<AGROW>
+                        blob = [blob, reshape(chunk, 1, [])]; %#ok<AGROW>
+                    end
+                end
+            end
+            indexDir = fullfile(tc.servedRoot, indexName);
+            mkdir(indexDir);
+            [meta, ~] = src.get("zarr.json");
+            writeBytes(fullfile(indexDir, "zarr.json"), meta);
+            writeBytes(fullfile(indexDir, "manifest.json"), ...
+                unicode2native(char("{""chunks"":{" + join(entries, ",") + "}}"), 'UTF-8'));
+            if writeBlob
+                writeBytes(fullfile(tc.servedRoot, blobName), blob);
+            end
+        end
+    end
+
     methods (Test)
         function readOverHttp(tc)
             store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
@@ -432,6 +475,74 @@ classdef TestHttpStore < matlab.unittest.TestCase
             % A status that is neither success nor "not found".
             tc.verifyError(@() zarr.internal.http_read_range(base + "error/blob2.bin", 10, 10), ...
                 "zarr:StoreError");
+        end
+
+        function manifestChunksOverHttpFetchConcurrently(tc)
+            % A manifest whose chunks are byte ranges of one served file, plus
+            % one inline chunk. /range/honor/ answers 206; the plain path
+            % ignores the Range header and sends the file whole.
+            [d, inlineKey] = tc.serveManifest("midx", "mblob.bin");
+            threadsCanReadRanges = tc.threadsCanReadRanges();
+            for base = ["/range/honor", ""]
+                store = zarr.stores.ManifestStore(sprintf("http://127.0.0.1:%d%s/midx", tc.port, base));
+                z = zarr.open(store);
+
+                % Seven remote chunks and the inline one: a whole read.
+                readAll = @() z.read();
+                % An earlier fallback turns concurrent ranged reads off.
+                zarr.internal.parallel_fetch_available(true, "range");
+                if threadsCanReadRanges
+                    tc.verifyEqual(tc.verifyWarningFree(readAll), d, base);
+                else
+                    tc.verifyEqual(tc.verifyWarning(readAll, "zarr:ParallelFetchUnavailable"), d, base);
+                end
+
+                % Rows 2 to 7: part of four chunks and all of four others.
+                tc.verifyEqual(z.read([2 1], [6 6]), d(2:7, :), base);
+                tc.verifyEqual(z(3, 2:5), d(3, 2:5), base);
+
+                store.ParallelThreshold = 2;
+                tc.verifyEqual(z(3, :), d(3, :), base);
+
+                store.MaxConcurrentRequests = 1;
+                tc.verifyEqual(z.read(), d, base);
+                tc.verifyEqual(z.read([2 1], [6 6]), d(2:7, :), base);
+
+                % Order is kept across remote, inline, metadata and absent keys.
+                store.MaxConcurrentRequests = 8;
+                keys = ["c/3/1", "zarr.json", "c/1/0", "nope", inlineKey, "c/2/1", "c/0/1"];
+                [values, found] = store.getMany(keys);
+                tc.verifyEqual(found, [true true true false true true true], base);
+                for i = find(found)
+                    tc.verifyEqual(values{i}, store.get(keys(i)), base + " " + keys(i));
+                end
+                partKeys = keys([1 3 5 6]);
+                offsets = [2 0 1 4];
+                lens = [4 12 3 2];
+                [parts, found] = store.getPartialMany(partKeys, offsets, lens);
+                tc.verifyTrue(all(found), base);
+                for i = 1:numel(partKeys)
+                    whole = store.get(partKeys(i));
+                    tc.verifyEqual(parts{i}, whole(offsets(i) + 1:offsets(i) + lens(i)), ...
+                        base + " part " + i);
+                end
+            end
+        end
+
+        function manifestMissingTargetOverHttpErrors(tc)
+            % The chunks point at a file that is not served. That is an error
+            % whether they are fetched concurrently or in turn, and it does
+            % not turn concurrent reads off.
+            tc.serveManifest("midx2", "absent.bin", false);
+            store = zarr.stores.ManifestStore(sprintf("http://127.0.0.1:%d/midx2", tc.port));
+            z = zarr.open(store);
+            if tc.threadsCanReadRanges()
+                zarr.internal.parallel_fetch_available(true, "range");
+                tc.verifyError(@() z.read(), "zarr:StoreError");
+                tc.verifyTrue(zarr.internal.parallel_fetch_available([], "range"));
+            end
+            store.MaxConcurrentRequests = 1;
+            tc.verifyError(@() z.read(), "zarr:StoreError");
         end
 
         function readOnlyEnforced(tc)
