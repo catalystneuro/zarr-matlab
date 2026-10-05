@@ -153,7 +153,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
             %   can make a ranged request in this MATLAB release.
             url = sprintf("http://127.0.0.1:%d/zarr.json", tc.port);
             try
-                fetchOutputs(parfeval(backgroundPool, @zarr.internal.http_read_range, 2, url, 0, 1));
+                zarr.internal.http_get_parallel(url, 1, [0 1]);
                 tf = true;
             catch
                 tf = false;
