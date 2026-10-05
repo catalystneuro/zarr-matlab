@@ -12,9 +12,14 @@ function [data, found] = http_read_range(url, offset, len)
 %     200 - the server ignored the Range header and sent the whole object.
 %   data is shorter than len when the object ends before offset + len.
 
-request = matlab.net.http.RequestMessage('GET', matlab.net.http.HeaderField( ...
-    'Range', sprintf('bytes=%d-%d', offset, offset + len - 1)));
-options = matlab.net.http.HTTPOptions('ConnectTimeout', 30, 'ConvertResponse', false);
+% A range counts bytes of the object as stored, so ask for it unencoded.
+request = matlab.net.http.RequestMessage('GET', [ ...
+    matlab.net.http.HeaderField('Range', sprintf('bytes=%d-%d', offset, offset + len - 1)), ...
+    matlab.net.http.HeaderField('Accept-Encoding', 'identity')]);
+% SavePayload keeps the bytes as received in Body.Payload. Body.Data is not
+% used: for a text content type it is a string, decoded with the charset.
+options = matlab.net.http.HTTPOptions('ConnectTimeout', 30, 'ConvertResponse', false, ...
+    'SavePayload', true);
 % 'literal' keeps the URL as written rather than encoding it again.
 response = request.send(matlab.net.URI(url, 'literal'), options);
 status = double(response.StatusCode);
@@ -24,7 +29,7 @@ found = status ~= 404 && status ~= 403;
 if ~found
     return
 end
-body = reshape(uint8(response.Body.Data), 1, []);
+body = reshape(uint8(response.Body.Payload), 1, []);
 switch status
     case 206
         bodyStart = contentRangeStart(response, offset);

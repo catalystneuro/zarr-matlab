@@ -82,6 +82,7 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 "        self.send_response(500 if mode == 'error' else 206)"
                 "        if not mode.endswith('noheader'):"
                 "            self.send_header('Content-Range', 'bytes %d-%d/%d' % (first, last, len(body)))"
+                "        self.send_header('Content-Type', self.guess_type(key))"
                 "        self.send_header('Content-Length', str(len(part)))"
                 "        self.end_headers()"
                 "        self.wfile.write(part)"
@@ -303,6 +304,26 @@ classdef TestHttpStore < matlab.unittest.TestCase
                 tc.verifyTrue(found);
                 tc.verifyEqual(data, bytes(offset + 1:offset + len));
             end
+        end
+
+        function rangeReadOfTextTypedObjectIsItsBytes(tc)
+            % A server names a content type from the file extension. The
+            % bytes must come back as stored whatever it says, including
+            % bytes that are not valid text.
+            bytes = uint8([0:255, 255:-1:0]);
+            for name = ["typed.json", "typed.txt", "typed.bin"]
+                writeBytes(fullfile(tc.servedRoot, name), bytes);
+                for base = ["/range/honor/", "/"]
+                    url = sprintf("http://127.0.0.1:%d%s%s", tc.port, base, name);
+                    [data, found] = zarr.internal.http_read_range(url, 120, 300);
+                    tc.verifyTrue(found, url);
+                    tc.verifyEqual(data, bytes(121:420), url);
+                end
+            end
+            % exists() makes a ranged read of a JSON document.
+            store = zarr.stores.HttpStore(sprintf("http://127.0.0.1:%d", tc.port));
+            tc.verifyTrue(store.exists("zarr.json"));
+            tc.verifyFalse(store.exists("nope/zarr.json"));
         end
 
         function rangeReadPastTheEndIsShort(tc)
