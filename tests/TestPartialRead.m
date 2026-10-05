@@ -56,6 +56,24 @@ classdef TestPartialRead < matlab.unittest.TestCase
                 [(24 + 0) * 2, 2 * 6 * 2; (24 + 2 * 6) * 2, 2 * 6 * 2]);
         end
 
+        function blocksAreReadInBatches(tc)
+            % One column of 100 single-row chunks: each chunk is covered in
+            % part, which is more than one batch of ranged reads.
+            [z, probe, d] = TestPartialRead.int16Array([100 4], [1 4]);
+            tc.verifyEqual(z.read([1 2], [100 1]), d(:, 2));
+            tc.verifyEqual(probe.nFullGets, 0);
+            tc.verifyEqual(probe.partialRanges, repmat([2 2], 100, 1));
+        end
+
+        function partialAndWholeChunksInOneRead(tc)
+            % Rows 2 to 199 of two-row chunks: the first and last chunk are
+            % covered in part, and the 98 between them are read whole.
+            [z, probe, d] = TestPartialRead.int16Array([200 4], [2 4]);
+            tc.verifyEqual(z.read([2 1], [198 4]), d(2:199, :));
+            tc.verifyEqual(probe.nPartialGets, 2);
+            tc.verifyEqual(probe.nFullGets, 98);
+        end
+
         function axesOfLengthOneArePassedThrough(tc)
             [z, probe, d] = TestPartialRead.int16Array([1 30 10], [1 30 10]);
             tc.verifyEqual(z(1, 11:20, 6:9), d(1, 11:20, 6:9));

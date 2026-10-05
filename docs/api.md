@@ -112,7 +112,9 @@ present (no store reads).
 
 Custom backends subclass `zarr.stores.Store`: implement
 `get`, `set`, `erase`, `exists`, `list`, `listDir`; optionally override
-`getPartial(key, offset, len)` and `getSuffix(key, len)` for ranged reads.
+`getPartial(key, offset, len)` and `getSuffix(key, len)` for ranged reads,
+and `getMany(keys)` and `getPartialMany(keys, offsets, lens)` to serve
+several reads at once.
 
 ## Codecs (`zarr.codecs.*`)
 

@@ -90,16 +90,7 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             % read in part, with one ranged request for the block it touches.
             bc = obj.codecPipeline().soleBytes();
             if ~isempty(bc)
-                whole = true(1, numel(parts));
-                for t = 1:numel(parts)
-                    p = parts(t);
-                    [offset, blockShape] = blockWindow(p.inStart, p.inCount, obj.meta.chunkShape);
-                    if prod(blockShape) < prod(obj.meta.chunkShape)
-                        out = obj.readBlock(bc, obj.chunkStoreKey(p.coords), p, offset, blockShape, out);
-                        whole(t) = false;
-                    end
-                end
-                parts = parts(whole);
+                [parts, out] = obj.readBlocks(bc, parts, out);
             end
 
             % The other chunks are fetched whole, a batch at a time through
@@ -492,25 +483,49 @@ classdef Array < handle & matlab.mixin.indexing.RedefinesParen
             end
         end
 
-        function out = readBlock(obj, bc, key, p, offset, blockShape, out)
-            %READBLOCK Partial read of an uncompressed chunk: fetch only the
-            %   block of the chunk that the region touches, with a single
-            %   ranged request. offset is where the block starts in the chunk,
-            %   in items, and blockShape is its shape (see blockWindow).
+        function [parts, out] = readBlocks(obj, bc, parts, out)
+            %READBLOCKS Partial reads of uncompressed chunks: for each chunk
+            %   that the region covers only part of, fetch only the block of
+            %   the chunk it touches, with a single ranged request (see
+            %   blockWindow). Returns the parts that are left to read whole.
+            %
+            %   The blocks are fetched a batch at a time through
+            %   getPartialMany, which a store such as HttpStore serves with
+            %   concurrent requests.
+            cs = obj.meta.chunkShape;
             itemsize = obj.info.itemsize;
-            [bytes, found] = obj.store.getPartial(key, offset * itemsize, ...
-                prod(blockShape) * itemsize);
-            if ~found
-                return  % missing chunk -> fill (already prefilled)
+            offsets = zeros(1, numel(parts));   % where each block starts, in items
+            shapes = cell(1, numel(parts));
+            partial = false(1, numel(parts));
+            for t = 1:numel(parts)
+                [offsets(t), shapes{t}] = blockWindow(parts(t).inStart, parts(t).inCount, cs);
+                partial(t) = prod(shapes{t}) < prod(cs);
             end
-            chunk = bc.decode(bytes, obj.info, blockShape, obj.meta.fillValue);
-            % Along each axis where the block is shorter than the chunk, it
-            % starts at the region's first index. The other axes are whole.
-            inStart = p.inStart;
-            inStart(blockShape < obj.meta.chunkShape) = 0;
-            src = subsFor(inStart, p.inCount);
-            dst = subsFor(p.outStart, p.inCount);
-            out(dst{:}) = chunk(src{:});
+
+            blocks = find(partial);
+            for first = 1:obj.ChunkBatchSize:numel(blocks)
+                batch = blocks(first:min(first + obj.ChunkBatchSize - 1, numel(blocks)));
+                keys = strings(1, numel(batch));
+                for k = 1:numel(batch)
+                    keys(k) = obj.chunkStoreKey(parts(batch(k)).coords);
+                end
+                lens = cellfun(@prod, shapes(batch)) * itemsize;
+                [encoded, found] = obj.store.getPartialMany(keys, offsets(batch) * itemsize, lens);
+                for k = find(found)  % absent chunks keep the fill value
+                    p = parts(batch(k));
+                    blockShape = shapes{batch(k)};
+                    chunk = bc.decode(encoded{k}, obj.info, blockShape, obj.meta.fillValue);
+                    encoded{k} = [];
+                    % Along each axis where the block is shorter than the chunk, it
+                    % starts at the region's first index. The other axes are whole.
+                    inStart = p.inStart;
+                    inStart(blockShape < cs) = 0;
+                    src = subsFor(inStart, p.inCount);
+                    dst = subsFor(p.outStart, p.inCount);
+                    out(dst{:}) = chunk(src{:});
+                end
+            end
+            parts = parts(~partial);
         end
 
         function out = readFromShard(obj, sh, key, p, out)
