@@ -109,6 +109,7 @@ present (no store reads).
 | `MemoryStore` | `MemoryStore()` | in-memory |
 | `ZipStore` | `ZipStore(path, Mode="r"/"w")` | one-file store; `"w"` finalizes on `close()` |
 | `HttpStore` | `HttpStore(baseUrl)` | read-only; Range requests for partial reads |
+| `PrefetchStore` | `PrefetchStore(inner)` | wraps a store; `prefetch(keys)` fetches keys together and serves later reads of them |
 
 Custom backends subclass `zarr.stores.Store`: implement
 `get`, `set`, `erase`, `exists`, `list`, `listDir`; optionally override
