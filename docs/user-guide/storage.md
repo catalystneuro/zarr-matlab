@@ -67,6 +67,25 @@ requires consolidated metadata (below) — direct opens by `Path` always work.
 Public S3 buckets work today via their HTTPS endpoints
 (`https://<bucket>.s3.<region>.amazonaws.com/...`).
 
+## Prefetching
+
+`PrefetchStore` wraps another store. `prefetch(keys)` fetches the given keys
+with one `getMany` call to the inner store, which `HttpStore` serves with
+concurrent requests, and later reads of those keys are answered from the
+fetched values. Use it when a program knows which keys it will read one after
+another, such as the single chunks of many small arrays, and each read would
+otherwise be a separate round trip. Byte-range reads always go to the inner
+store, and writing or erasing a key drops its fetched value.
+
+```matlab
+inner = zarr.stores.MemoryStore();
+zarr.create(inner, 3, "int8", Path="small").write(int8([1; 2; 3]));
+store = zarr.stores.PrefetchStore(inner);
+store.prefetch("small/c/0");
+small = zarr.open(store, Path="small");
+assert(isequal(small(:), int8([1; 2; 3])))
+```
+
 ## Consolidated metadata
 
 Opening a deep hierarchy normally costs one read per `zarr.json`. Fatal over

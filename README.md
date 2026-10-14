@@ -103,6 +103,8 @@ zarr.stores.ZipStore("archive.zarr.zip")       % read a zipped store
 zarr.stores.ZipStore("out.zarr.zip", Mode="w") % write one (finalized by close())
 zarr.stores.HttpStore("https://host/data.zarr")% read-only over HTTP(S); Range
                                                % requests -> partial shard reads
+zarr.stores.PrefetchStore(store)               % wraps a store; prefetch(keys) fetches
+                                               % keys together for later reads
 ```
 
 Strings and consolidated metadata:
