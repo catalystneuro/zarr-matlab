@@ -24,13 +24,13 @@ classdef PrefetchStore < zarr.stores.Store
     %       values = a(:);   % served from the prefetched chunk
 
     properties (SetAccess = immutable)
-        inner   % the wrapped zarr.stores.Store
+        Inner   % the wrapped zarr.stores.Store
     end
 
     properties (Access = private)
         % containers.Map from key to struct(data, found). Created in the
         % constructor: a handle default would be shared by every instance.
-        prefetched
+        Prefetched
     end
 
     methods
@@ -38,8 +38,8 @@ classdef PrefetchStore < zarr.stores.Store
             arguments
                 inner (1,1) zarr.stores.Store
             end
-            obj.inner = inner;
-            obj.prefetched = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.Inner = inner;
+            obj.Prefetched = containers.Map('KeyType', 'char', 'ValueType', 'any');
         end
 
         function prefetch(obj, keys)
@@ -51,20 +51,20 @@ classdef PrefetchStore < zarr.stores.Store
             if isempty(keys)
                 return
             end
-            [fetched, found] = obj.inner.getMany(keys);
+            [fetched, found] = obj.Inner.getMany(keys);
             for i = 1:numel(keys)
-                obj.prefetched(char(keys(i))) = struct("data", fetched{i}, "found", found(i));
+                obj.Prefetched(char(keys(i))) = struct("data", fetched{i}, "found", found(i));
             end
         end
 
         function [data, found] = get(obj, key)
             if obj.isPrefetched(key)
-                entry = obj.prefetched(char(key));
+                entry = obj.Prefetched(char(key));
                 data = entry.data;
                 found = entry.found;
                 return
             end
-            [data, found] = obj.inner.get(key);
+            [data, found] = obj.Inner.get(key);
         end
 
         function [values, found] = getMany(obj, keys)
@@ -76,7 +76,7 @@ classdef PrefetchStore < zarr.stores.Store
                 [values{i}, found(i)] = obj.get(keys(i));
             end
             if ~all(held)
-                [values(~held), found(~held)] = obj.inner.getMany(keys(~held));
+                [values(~held), found(~held)] = obj.Inner.getMany(keys(~held));
             end
         end
 
@@ -86,7 +86,7 @@ classdef PrefetchStore < zarr.stores.Store
                 % get returns.
                 [data, found] = getPartial@zarr.stores.Store(obj, key, offset, len);
             else
-                [data, found] = obj.inner.getPartial(key, offset, len);
+                [data, found] = obj.Inner.getPartial(key, offset, len);
             end
         end
 
@@ -99,7 +99,7 @@ classdef PrefetchStore < zarr.stores.Store
                 [values{i}, found(i)] = obj.getPartial(keys(i), offsets(i), lens(i));
             end
             if ~all(held)
-                [values(~held), found(~held)] = obj.inner.getPartialMany( ...
+                [values(~held), found(~held)] = obj.Inner.getPartialMany( ...
                     keys(~held), offsets(~held), lens(~held));
             end
         end
@@ -110,47 +110,47 @@ classdef PrefetchStore < zarr.stores.Store
                 % get returns.
                 [data, found] = getSuffix@zarr.stores.Store(obj, key, len);
             else
-                [data, found] = obj.inner.getSuffix(key, len);
+                [data, found] = obj.Inner.getSuffix(key, len);
             end
         end
 
         function tf = exists(obj, key)
             if obj.isPrefetched(key)
-                entry = obj.prefetched(char(key));
+                entry = obj.Prefetched(char(key));
                 tf = entry.found;
             else
-                tf = obj.inner.exists(key);
+                tf = obj.Inner.exists(key);
             end
         end
 
         function set(obj, key, data)
             obj.forget(key);
-            obj.inner.set(key, data);
+            obj.Inner.set(key, data);
         end
 
         function erase(obj, key)
             obj.forget(key);
-            obj.inner.erase(key);
+            obj.Inner.erase(key);
         end
 
         function keys = list(obj)
-            keys = obj.inner.list();
+            keys = obj.Inner.list();
         end
 
         function [subdirs, files] = listDir(obj, prefix)
-            [subdirs, files] = obj.inner.listDir(prefix);
+            [subdirs, files] = obj.Inner.listDir(prefix);
         end
     end
 
     methods (Access = private)
         function tf = isPrefetched(obj, keys)
             %ISPREFETCHED True for each of keys that has a prefetched value.
-            tf = isKey(obj.prefetched, cellstr(keys));
+            tf = isKey(obj.Prefetched, cellstr(keys));
         end
 
         function forget(obj, key)
             if obj.isPrefetched(key)
-                remove(obj.prefetched, char(key));
+                remove(obj.Prefetched, char(key));
             end
         end
     end
