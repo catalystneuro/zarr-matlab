@@ -43,8 +43,9 @@ classdef PrefetchStore < zarr.stores.Store
 
         function prefetch(obj, keys)
             %PREFETCH Fetch keys together and keep their values.
-            %   Keys fetched before are not fetched again.
-            keys = reshape(string(keys), 1, []);
+            %   A key is fetched once, however often it is named in this
+            %   call and in earlier ones.
+            keys = unique(reshape(string(keys), 1, []), "stable");
             keys = keys(~obj.isPrefetched(keys));
             if isempty(keys)
                 return

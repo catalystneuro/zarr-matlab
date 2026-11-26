@@ -37,6 +37,12 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
             tc.verifyEqual(tc.inner.nFullGets, 2);
         end
 
+        function keyRepeatedInOneCallIsFetchedOnce(tc)
+            tc.store.prefetch(["a", "a", "b", "a"]);
+
+            tc.verifyEqual(tc.inner.nFullGets, 2);
+        end
+
         function absentKeyIsRememberedAsAbsent(tc)
             tc.store.prefetch("missing");
 
