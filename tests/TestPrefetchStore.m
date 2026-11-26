@@ -37,6 +37,15 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
             tc.verifyEqual(tc.inner.nFullGets, 2);
         end
 
+        function prefetchingOnlyPrefetchedKeysReadsNothing(tc)
+            tc.store.prefetch(["a", "b"]);
+            tc.inner.resetCounts();
+
+            tc.store.prefetch(["b", "a"]);
+
+            tc.verifyEqual(tc.inner.nFullGets, 0);
+        end
+
         function keyRepeatedInOneCallIsFetchedOnce(tc)
             tc.store.prefetch(["a", "a", "b", "a"]);
 
@@ -179,8 +188,13 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
         end
 
         function listingGoesToInnerStore(tc)
+            tc.inner.set("group/c", uint8(6));
+
+            [subdirs, files] = tc.store.listDir("");
+
             tc.verifyEqual(sort(tc.store.list()), sort(tc.inner.list()));
-            tc.verifyTrue(tc.store.exists("a"));
+            tc.verifyEqual(subdirs, "group");
+            tc.verifyEqual(sort(files), ["a"; "b"]);
         end
     end
 end
