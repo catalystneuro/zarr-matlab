@@ -38,8 +38,8 @@ runs:
         cmake --build ../blosc-build --config Release -j4
         cmake --install ../blosc-build --config Release
 
-    # Every ref can restore a cache saved on main; a cache saved on any other
-    # ref is visible to that ref alone.
+    # Every ref can restore a cache saved on main. A cache saved by a pull
+    # request run can be restored by that pull request alone.
     - name: Save static libraries
       if: steps.libcache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       uses: actions/cache/save@v4
