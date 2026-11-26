@@ -78,6 +78,9 @@ keys the inner store did not hold. Use it when a program knows which keys it
 will read one after another, such as the single chunks of many small arrays,
 and each read would otherwise be a separate round trip. Reads of other keys go
 to the inner store, and writing or erasing a key drops its fetched value.
+`forget(keys)` drops the fetched values of keys, and `forget()` drops them
+all, so that later reads go to the inner store. `close()` drops them all and
+closes the inner store when it has a `close` method, as `ZipStore` does.
 
 ```matlab
 inner = zarr.stores.MemoryStore();

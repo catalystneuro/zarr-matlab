@@ -81,6 +81,51 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
             tc.verifyFalse(found);
         end
 
+        function forgottenKeyIsReadFromInnerStore(tc)
+            tc.store.prefetch(["a", "b"]);
+            tc.inner.set("a", uint8(9));
+            tc.inner.set("b", uint8(8));
+
+            tc.store.forget(["a", "missing"]);
+
+            tc.verifyEqual(tc.store.get("a"), uint8(9));
+            tc.verifyEqual(tc.store.get("b"), uint8([4 5]));
+        end
+
+        function forgetWithoutKeysDropsEveryValue(tc)
+            tc.store.prefetch(["a", "b"]);
+            tc.inner.set("a", uint8(9));
+            tc.inner.set("b", uint8(8));
+
+            tc.store.forget();
+
+            tc.verifyEqual(tc.store.get("a"), uint8(9));
+            tc.verifyEqual(tc.store.get("b"), uint8(8));
+        end
+
+        function closeFinalizesInnerZipStore(tc)
+            zipPath = string(tempname()) + ".zarr.zip";
+            tc.addTeardown(@() delete(zipPath));
+            zipBacked = zarr.stores.PrefetchStore(zarr.stores.ZipStore(zipPath, Mode="w"));
+            zarr.create(zipBacked, 3, "int8", Path="x").write(int8([1; 2; 3]));
+
+            zipBacked.close();
+
+            reopened = zarr.stores.ZipStore(zipPath);
+            tc.addTeardown(@() reopened.close());
+            array = zarr.open(reopened, Path="x");
+            tc.verifyEqual(array(:), int8([1; 2; 3]));
+        end
+
+        function closeWorksForStoreWithoutCloseMethod(tc)
+            tc.store.prefetch("a");
+            tc.inner.set("a", uint8(9));
+
+            tc.store.close();
+
+            tc.verifyEqual(tc.store.get("a"), uint8(9));
+        end
+
         function getManyMixesPrefetchedAndOtherKeys(tc)
             tc.store.prefetch(["a", "missing"]);
 

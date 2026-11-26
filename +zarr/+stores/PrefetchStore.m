@@ -11,7 +11,10 @@ classdef PrefetchStore < zarr.stores.Store
     %   getPartialMany and getSuffix, which return part of the value. A key
     %   that the inner store did not hold when it was prefetched reads as
     %   absent. Reads of other keys, list and listDir go to the inner
-    %   store. Writing or erasing a key drops its prefetched value.
+    %   store. Writing or erasing a key drops its prefetched value, and
+    %   forget(store, keys) drops the values of keys without writing them.
+    %   close(store) drops every value and closes the inner store when it
+    %   has a close method, as zarr.stores.ZipStore does.
     %
     %   Use it when a program knows which keys it will read one after
     %   another, such as the single chunks of many small arrays, and each
@@ -144,18 +147,37 @@ classdef PrefetchStore < zarr.stores.Store
         function [subdirs, files] = listDir(obj, prefix)
             [subdirs, files] = obj.Inner.listDir(prefix);
         end
+
+        function forget(obj, keys)
+            %FORGET Drop prefetched values, so that later reads go to the inner store.
+            %   forget(store, keys) drops the values of keys. Keys without a
+            %   prefetched value are ignored. forget(store) drops every
+            %   prefetched value.
+            arguments
+                obj
+                keys string = obj.Prefetched.keys()
+            end
+            keys = keys(obj.isPrefetched(keys));
+            if ~isempty(keys)
+                remove(obj.Prefetched, cellstr(keys));
+            end
+        end
+
+        function close(obj)
+            %CLOSE Drop every prefetched value and close the inner store.
+            %   The inner store is closed only when it has a close method,
+            %   as zarr.stores.ZipStore does.
+            obj.forget();
+            if ismethod(obj.Inner, "close")
+                obj.Inner.close();
+            end
+        end
     end
 
     methods (Access = private)
         function tf = isPrefetched(obj, keys)
             %ISPREFETCHED True for each of keys that has a prefetched value.
             tf = isKey(obj.Prefetched, cellstr(keys));
-        end
-
-        function forget(obj, key)
-            if obj.isPrefetched(key)
-                remove(obj.Prefetched, char(key));
-            end
         end
     end
 end
