@@ -2,8 +2,9 @@ classdef PrefetchStore < zarr.stores.Store
     %PREFETCHSTORE Store wrapper that answers reads from values fetched in advance.
     %   store = zarr.stores.PrefetchStore(inner) wraps another store.
     %   prefetch(store, keys) fetches the given keys with one call to the
-    %   inner store's getMany, which zarr.stores.HttpStore serves with
-    %   concurrent requests, and keeps the values.
+    %   inner store's getMany and keeps the values. zarr.stores.HttpStore
+    %   serves that call with concurrent requests when there are at least
+    %   ParallelThreshold keys, 4 by default (see its getMany).
     %
     %   Every read of a prefetched key is answered from its value: get,
     %   getMany and exists, and the byte-range reads getPartial,
@@ -18,7 +19,7 @@ classdef PrefetchStore < zarr.stores.Store
     %
     %   Example:
     %       store = zarr.stores.PrefetchStore(zarr.stores.HttpStore(url));
-    %       store.prefetch(["a/c/0", "b/c/0"]);
+    %       store.prefetch(["a", "b", "c", "d"] + "/c/0");
     %       a = zarr.open(store, Path="a");
     %       values = a(:);   % served from the prefetched chunk
 

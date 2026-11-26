@@ -70,8 +70,9 @@ Public S3 buckets work today via their HTTPS endpoints
 ## Prefetching
 
 `PrefetchStore` wraps another store. `prefetch(keys)` fetches the given keys
-with one `getMany` call to the inner store, which `HttpStore` serves with
-concurrent requests. Every later read of those keys is answered from the
+with one `getMany` call to the inner store. `HttpStore` serves that call with
+concurrent requests when there are at least `ParallelThreshold` keys, 4 by
+default. Every later read of those keys is answered from the
 fetched values: whole values, byte ranges of them, and `exists`, including for
 keys the inner store did not hold. Use it when a program knows which keys it
 will read one after another, such as the single chunks of many small arrays,
