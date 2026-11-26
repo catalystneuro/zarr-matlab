@@ -45,3 +45,11 @@ writes → zarr-python verifies). It uses `.venv/bin/python` or
 - `ci.yml` — test matrix (Linux/Windows/macOS × latest, plus R2023a).
 - `build-mex.yml` — builds relocatable MEX binaries on all platforms;
   attaches archives and the `.mltbx` to releases on `v*` tags.
+- Caches: `ci.yml` caches the MATLAB install, the pip packages and the
+  static compression libraries. GitHub removes a cache that has not been
+  restored for 7 days, and a cache saved by a pull request run can be
+  restored only by that pull request. When `gh cache list` shows no caches
+  for `refs/heads/main`, run `gh workflow run ci.yml --ref main` before
+  opening or pushing to pull requests. They then restore `main`'s caches
+  instead of each saving its own copy, about 6 GB per run against the
+  repository's 10 GB cache limit.
