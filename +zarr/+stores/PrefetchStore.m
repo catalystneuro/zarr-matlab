@@ -26,7 +26,7 @@ classdef PrefetchStore < zarr.stores.Store
     properties (Access = private)
         % containers.Map from key to struct(data, found). Created in the
         % constructor: a handle default would be shared by every instance.
-        values
+        prefetched
     end
 
     methods
@@ -35,26 +35,26 @@ classdef PrefetchStore < zarr.stores.Store
                 inner (1,1) zarr.stores.Store
             end
             obj.inner = inner;
-            obj.values = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.prefetched = containers.Map('KeyType', 'char', 'ValueType', 'any');
         end
 
         function prefetch(obj, keys)
             %PREFETCH Fetch keys together and keep their values.
             %   Keys fetched before are not fetched again.
             keys = reshape(string(keys), 1, []);
-            keys = keys(~isKey(obj.values, cellstr(keys)));
+            keys = keys(~obj.isPrefetched(keys));
             if isempty(keys)
                 return
             end
             [fetched, found] = obj.inner.getMany(keys);
             for i = 1:numel(keys)
-                obj.values(char(keys(i))) = struct("data", fetched{i}, "found", found(i));
+                obj.prefetched(char(keys(i))) = struct("data", fetched{i}, "found", found(i));
             end
         end
 
         function [data, found] = get(obj, key)
-            if isKey(obj.values, char(key))
-                entry = obj.values(char(key));
+            if obj.isPrefetched(key)
+                entry = obj.prefetched(char(key));
                 data = entry.data;
                 found = entry.found;
                 return
@@ -66,13 +66,12 @@ classdef PrefetchStore < zarr.stores.Store
             keys = reshape(string(keys), 1, []);
             values = cell(1, numel(keys));
             found = false(1, numel(keys));
-            isPrefetched = isKey(obj.values, cellstr(keys));
-            for i = find(isPrefetched)
+            held = obj.isPrefetched(keys);
+            for i = find(held)
                 [values{i}, found(i)] = obj.get(keys(i));
             end
-            if any(~isPrefetched)
-                [values(~isPrefetched), found(~isPrefetched)] = ...
-                    obj.inner.getMany(keys(~isPrefetched));
+            if ~all(held)
+                [values(~held), found(~held)] = obj.inner.getMany(keys(~held));
             end
         end
 
@@ -112,9 +111,14 @@ classdef PrefetchStore < zarr.stores.Store
     end
 
     methods (Access = private)
+        function tf = isPrefetched(obj, keys)
+            %ISPREFETCHED True for each of keys that has a prefetched value.
+            tf = isKey(obj.prefetched, cellstr(keys));
+        end
+
         function forget(obj, key)
-            if isKey(obj.values, char(key))
-                remove(obj.values, char(key));
+            if obj.isPrefetched(key)
+                remove(obj.prefetched, char(key));
             end
         end
     end

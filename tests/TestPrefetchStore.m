@@ -95,9 +95,9 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
             tc.store.prefetch("x/c/0/0");
             readsAfterPrefetch = tc.inner.nFullGets;
 
-            values = zarr.open(tc.store, Path="x");
+            array = zarr.open(tc.store, Path="x");
 
-            tc.verifyEqual(values(:), int16((1:4)'));
+            tc.verifyEqual(array(:), int16((1:4)'));
             tc.verifyEqual(tc.inner.nFullGets, readsAfterPrefetch);
         end
 
