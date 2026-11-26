@@ -14,7 +14,7 @@ runs:
   steps:
     - name: Cache static libraries
       id: libcache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: native
         key: native-${{ runner.os }}-${{ runner.arch }}-${{ inputs.zstd-tag }}-${{ inputs.blosc-tag }}-v2
