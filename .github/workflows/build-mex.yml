@@ -25,17 +25,17 @@ jobs:
           - os: macos-latest
             platform: maca64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/native-libs
 
       - name: Set up MATLAB
-        uses: matlab-actions/setup-matlab@v2
+        uses: matlab-actions/setup-matlab@v3
         with:
           cache: true
 
       - name: Build MEX
-        uses: matlab-actions/run-command@v2
+        uses: matlab-actions/run-command@v3
         with:
           command: >-
             cd(getenv('GITHUB_WORKSPACE'));
@@ -43,11 +43,11 @@ jobs:
             addpath(pwd, fullfile(pwd, 'tools'));
             build_mex
       - name: Smoke-test MEX
-        uses: matlab-actions/run-command@v2
+        uses: matlab-actions/run-command@v3
         with:
           command: cd(getenv('GITHUB_WORKSPACE')); addpath(pwd, fullfile(pwd, 'tools')); mex_smoke
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mex-${{ matrix.platform }}
           path: +zarr/+internal/*.mex*
@@ -60,8 +60,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Package per-platform archives and bundle MEX into the toolbox
@@ -71,14 +71,14 @@ jobs:
           cd ..
           cp artifacts/mex-*/* +zarr/+internal/
       - name: Set up MATLAB
-        uses: matlab-actions/setup-matlab@v2
+        uses: matlab-actions/setup-matlab@v3
         with:
           cache: true
       - name: Build .mltbx (all platform binaries included)
-        uses: matlab-actions/run-command@v2
+        uses: matlab-actions/run-command@v3
         with:
           command: cd(getenv('GITHUB_WORKSPACE')); addpath(fullfile(pwd, 'tools')); package_toolbox
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/zarr-matlab-mex-*.zip
