@@ -3,11 +3,14 @@ classdef PrefetchStore < zarr.stores.Store
     %   store = zarr.stores.PrefetchStore(inner) wraps another store.
     %   prefetch(store, keys) fetches the given keys with one call to the
     %   inner store's getMany, which zarr.stores.HttpStore serves with
-    %   concurrent requests, and keeps the values. get and getMany answer
-    %   prefetched keys from those values, including keys the inner store
-    %   does not hold. Every other read, including byte-range reads, goes
-    %   to the inner store. Writing or erasing a key drops its prefetched
-    %   value.
+    %   concurrent requests, and keeps the values.
+    %
+    %   Every read of a prefetched key is answered from its value: get,
+    %   getMany and exists, and the byte-range reads getPartial,
+    %   getPartialMany and getSuffix, which return part of the value. A key
+    %   that the inner store did not hold when it was prefetched reads as
+    %   absent. Reads of other keys, list and listDir go to the inner
+    %   store. Writing or erasing a key drops its prefetched value.
     %
     %   Use it when a program knows which keys it will read one after
     %   another, such as the single chunks of many small arrays, and each
@@ -76,19 +79,46 @@ classdef PrefetchStore < zarr.stores.Store
         end
 
         function [data, found] = getPartial(obj, key, offset, len)
-            [data, found] = obj.inner.getPartial(key, offset, len);
+            if obj.isPrefetched(key)
+                % The Store default takes the range from the value that
+                % get returns.
+                [data, found] = getPartial@zarr.stores.Store(obj, key, offset, len);
+            else
+                [data, found] = obj.inner.getPartial(key, offset, len);
+            end
         end
 
         function [values, found] = getPartialMany(obj, keys, offsets, lens)
-            [values, found] = obj.inner.getPartialMany(keys, offsets, lens);
+            keys = reshape(string(keys), 1, []);
+            values = cell(1, numel(keys));
+            found = false(1, numel(keys));
+            held = obj.isPrefetched(keys);
+            for i = find(held)
+                [values{i}, found(i)] = obj.getPartial(keys(i), offsets(i), lens(i));
+            end
+            if ~all(held)
+                [values(~held), found(~held)] = obj.inner.getPartialMany( ...
+                    keys(~held), offsets(~held), lens(~held));
+            end
         end
 
         function [data, found] = getSuffix(obj, key, len)
-            [data, found] = obj.inner.getSuffix(key, len);
+            if obj.isPrefetched(key)
+                % The Store default takes the suffix from the value that
+                % get returns.
+                [data, found] = getSuffix@zarr.stores.Store(obj, key, len);
+            else
+                [data, found] = obj.inner.getSuffix(key, len);
+            end
         end
 
         function tf = exists(obj, key)
-            tf = obj.inner.exists(key);
+            if obj.isPrefetched(key)
+                entry = obj.prefetched(char(key));
+                tf = entry.found;
+            else
+                tf = obj.inner.exists(key);
+            end
         end
 
         function set(obj, key, data)
