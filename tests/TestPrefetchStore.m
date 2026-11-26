@@ -30,6 +30,12 @@ classdef TestPrefetchStore < matlab.unittest.TestCase
             tc.verifyEqual(tc.inner.nFullGets, readsAfterPrefetch);
         end
 
+        function prefetchMakesOneGetManyCall(tc)
+            tc.store.prefetch(["a", "b", "missing"]);
+
+            tc.verifyEqual(tc.inner.nGetManyCalls, 1);
+        end
+
         function prefetchingTwiceFetchesOnce(tc)
             tc.store.prefetch("a");
             tc.store.prefetch(["a", "b"]);
